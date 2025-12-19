@@ -1,0 +1,27 @@
+const mysql = require('mysql2/promise');
+require('dotenv').config();
+
+// สร้าง connection pool สำหรับ MySQL
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'tms',
+  port: process.env.DB_PORT || 3306,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  charset: 'utf8mb4'
+});
+
+// ทดสอบการเชื่อมต่อฐานข้อมูล
+pool.getConnection()
+  .then(connection => {
+    console.log('✅ เชื่อมต่อฐานข้อมูล MySQL สำเร็จ');
+    connection.release();
+  })
+  .catch(error => {
+    console.error('❌ ไม่สามารถเชื่อมต่อฐานข้อมูลได้:', error.message);
+  });
+
+module.exports = pool;
