@@ -21,14 +21,15 @@ class ApiService {
     return headers;
   }
 
-  // เข้าสู่ระบบด้วยรหัสบัตรประชาชน
-  Future<Map<String, dynamic>> login(String idCardNo) async {
+  // เข้าสู่ระบบด้วยรหัสบัตรประชาชนและวันเดือนปีเกิด
+  Future<Map<String, dynamic>> login(String idCardNo, String birthDate) async {
     try {
       final response = await http.post(
         Uri.parse(ApiConfig.loginUrl),
         headers: await _getHeaders(),
         body: jsonEncode({
           'id_card_no': idCardNo,
+          'birth_date': birthDate,
         }),
       );
 

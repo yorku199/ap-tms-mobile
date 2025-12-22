@@ -14,13 +14,13 @@ class AuthProvider with ChangeNotifier {
   bool get isAuthenticated => _user != null;
 
   // เข้าสู่ระบบ
-  Future<bool> login(String idCardNo) async {
+  Future<bool> login(String idCardNo, String birthDate) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final result = await _apiService.login(idCardNo);
+      final result = await _apiService.login(idCardNo, birthDate);
 
       if (result['success'] == true) {
         _user = User.fromJson(result['user']);

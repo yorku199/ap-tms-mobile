@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 import '../providers/auth_provider.dart';
-import 'job_order_screen.dart';
+import 'profile_screen.dart';
 
 class IdentityVerificationScreen extends StatefulWidget {
   const IdentityVerificationScreen({super.key});
@@ -16,11 +17,14 @@ class _IdentityVerificationScreenState
     extends State<IdentityVerificationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _idCardController = TextEditingController();
+  final _birthDateController = TextEditingController();
+  DateTime? _selectedBirthDate;
   bool _isLoading = false;
 
   @override
   void dispose() {
     _idCardController.dispose();
+    _birthDateController.dispose();
     super.dispose();
   }
 
@@ -38,9 +42,48 @@ class _IdentityVerificationScreenState
     return null;
   }
 
+  // ฟังก์ชันสำหรับตรวจสอบวันเดือนปีเกิด
+  String? _validateBirthDate(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'กรุณาเลือกวันเดือนปีเกิด';
+    }
+    return null;
+  }
+
+  // ฟังก์ชันสำหรับเลือกวันเดือนปีเกิด
+  Future<void> _selectBirthDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedBirthDate ?? DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
+      locale: const Locale('th', 'TH'),
+      helpText: 'เลือกวันเดือนปีเกิด',
+      cancelText: 'ยกเลิก',
+      confirmText: 'ยืนยัน',
+    );
+    if (picked != null && picked != _selectedBirthDate) {
+      setState(() {
+        _selectedBirthDate = picked;
+        _birthDateController.text = DateFormat('yyyy-MM-dd').format(picked);
+      });
+    }
+  }
+
   // ฟังก์ชันสำหรับยืนยันตัวตน
   Future<void> _verifyIdentity() async {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (_selectedBirthDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('กรุณาเลือกวันเดือนปีเกิด'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
 
@@ -49,7 +92,11 @@ class _IdentityVerificationScreenState
     });
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final success = await authProvider.login(_idCardController.text.trim());
+    final birthDateStr = DateFormat('yyyy-MM-dd').format(_selectedBirthDate!);
+    final success = await authProvider.login(
+      _idCardController.text.trim(),
+      birthDateStr,
+    );
 
     setState(() {
       _isLoading = false;
@@ -58,10 +105,10 @@ class _IdentityVerificationScreenState
     if (!mounted) return;
 
     if (success) {
-      // นำทางไปหน้า Job Order
+      // นำทางไปหน้า Profile
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (context) => const JobOrderScreen(),
+          builder: (context) => const ProfileScreen(),
         ),
       );
     } else {
@@ -135,8 +182,33 @@ class _IdentityVerificationScreenState
                     ],
                     validator: _validateIdCard,
                     onChanged: (_) => setState(() {}),
-                    textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _verifyIdentity(),
+                    textInputAction: TextInputAction.next,
+                    enabled: !_isLoading,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ช่องเลือกวันเดือนปีเกิด
+                  TextFormField(
+                    controller: _birthDateController,
+                    decoration: InputDecoration(
+                      labelText: 'วันเดือนปีเกิด',
+                      hintText: 'กรุณาเลือกวันเดือนปีเกิด',
+                      prefixIcon: const Icon(Icons.calendar_today),
+                      suffixIcon: _birthDateController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _birthDateController.clear();
+                                setState(() {
+                                  _selectedBirthDate = null;
+                                });
+                              },
+                            )
+                          : null,
+                    ),
+                    readOnly: true,
+                    onTap: _selectBirthDate,
+                    validator: _validateBirthDate,
                     enabled: !_isLoading,
                   ),
                   const SizedBox(height: 32),
@@ -172,7 +244,7 @@ class _IdentityVerificationScreenState
 
                   // ข้อความช่วยเหลือ
                   Text(
-                    'กรุณากรอกรหัสบัตรประชาชน 13 หลักเพื่อยืนยันตัวตน',
+                    'กรุณากรอกรหัสบัตรประชาชน 13 หลักและเลือกวันเดือนปีเกิดเพื่อยืนยันตัวตน',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.grey[600],
                         ),

@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   
   # UI
   cupertino_icons: ^1.0.6
@@ -24,10 +26,17 @@ dependencies:
   shared_preferences: ^2.2.2
   
   # Utils
-  intl: ^0.18.1
+  intl: ^0.20.2
   
   # Image Picker
   image_picker: ^1.0.7
+  
+  # Location
+  geolocator: ^12.0.0
+  permission_handler: ^11.3.1
+  
+  # Google Maps
+  google_maps_flutter: ^2.5.0
 
 dev_dependencies:
   flutter_test:

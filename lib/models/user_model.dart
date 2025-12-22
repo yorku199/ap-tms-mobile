@@ -11,6 +11,9 @@ class User {
   final int? departmentId;
   final int? positionId;
   final String? profileImageUrl;
+  final int? yardId;
+  final String? inTime; // เวลาที่กำหนดให้เข้างาน (HH:MM:SS)
+  final String? outTime; // เวลาที่กำหนดให้ออกงาน (HH:MM:SS)
 
   User({
     required this.id,
@@ -25,6 +28,9 @@ class User {
     this.departmentId,
     this.positionId,
     this.profileImageUrl,
+    this.yardId,
+    this.inTime,
+    this.outTime,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -42,6 +48,9 @@ class User {
       departmentId: json['department_id'] as int?,
       positionId: json['position_id'] as int?,
       profileImageUrl: json['profile_image_url'] as String?,
+      yardId: json['yard_id'] as int?,
+      inTime: json['in_time'] as String?,
+      outTime: json['out_time'] as String?,
     );
   }
 
@@ -64,6 +73,9 @@ class User {
       'department_id': departmentId,
       'position_id': positionId,
       'profile_image_url': profileImageUrl,
+      'yard_id': yardId,
+      'in_time': inTime,
+      'out_time': outTime,
     };
   }
 }

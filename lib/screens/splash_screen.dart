@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../utils/storage.dart';
 import 'identity_verification_screen.dart';
-import 'job_order_screen.dart';
+import 'profile_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -37,10 +37,10 @@ class _SplashScreenState extends State<SplashScreen> {
         
         if (mounted) {
           if (authProvider.isAuthenticated) {
-            // Token ใช้ได้ นำทางไปหน้า Job Order
+            // Token ใช้ได้ นำทางไปหน้า Profile
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
-                builder: (context) => const JobOrderScreen(),
+                builder: (context) => const ProfileScreen(),
               ),
             );
           } else {

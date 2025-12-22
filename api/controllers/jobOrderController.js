@@ -230,7 +230,9 @@ const getJobOrders = async (req, res) => {
         } else if (job.job_status) {
           statusText = job.job_status;
         }
+
         console.log(`[routes] ${JSON.stringify(routesWithThailandTime)}`);
+        
         return {
           job_id: job.job_id,
           job_no: job.job_no,

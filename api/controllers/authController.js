@@ -10,16 +10,24 @@ const generateToken = (userId) => {
   );
 };
 
-// เข้าสู่ระบบด้วยรหัสบัตรประชาชน
+// เข้าสู่ระบบด้วยรหัสบัตรประชาชนและวันเดือนปีเกิด
 const login = async (req, res) => {
   try {
-    const { id_card_no } = req.body;
+    const { id_card_no, birth_date } = req.body;
 
     // ตรวจสอบว่ามีรหัสบัตรประชาชนหรือไม่
     if (!id_card_no) {
       return res.status(400).json({
         success: false,
         message: 'กรุณากรอกรหัสบัตรประชาชน'
+      });
+    }
+
+    // ตรวจสอบว่ามีวันเดือนปีเกิดหรือไม่
+    if (!birth_date) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณากรอกวันเดือนปีเกิด'
       });
     }
 
@@ -31,10 +39,20 @@ const login = async (req, res) => {
       });
     }
 
+    // ตรวจสอบรูปแบบวันเดือนปีเกิด (YYYY-MM-DD)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(birth_date)) {
+      return res.status(400).json({
+        success: false,
+        message: 'รูปแบบวันเดือนปีเกิดไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)'
+      });
+    }
+
     // ค้นหาผู้ใช้จากรหัสบัตรประชาชน
     const [users] = await pool.execute(
       `SELECT Id, username, name, lastname, id_card_no, role, status, 
-       email, contactnumber, employee_code, department_id, position_id, profile_image_url 
+       email, contactnumber, employee_code, department_id, position_id, profile_image_url, birth_date,
+       in_time, out_time
        FROM tb_user 
        WHERE id_card_no = ? AND status = 1 AND status_id = 4`,
       [id_card_no]
@@ -48,6 +66,43 @@ const login = async (req, res) => {
     }
 
     const user = users[0];
+
+    // ตรวจสอบวันเดือนปีเกิด
+    if (!user.birth_date) {
+      return res.status(401).json({
+        success: false,
+        message: 'ไม่พบข้อมูลวันเดือนปีเกิดในระบบ กรุณาติดต่อผู้ดูแลระบบ'
+      });
+    }
+
+    // แปลง birth_date จากฐานข้อมูลเป็น YYYY-MM-DD format
+    // birth_date อาจเป็น Date object หรือ string
+    let dbBirthDate;
+    if (user.birth_date instanceof Date) {
+      // ถ้าเป็น Date object ให้แปลงเป็น YYYY-MM-DD โดยไม่สน timezone
+      const year = user.birth_date.getFullYear();
+      const month = String(user.birth_date.getMonth() + 1).padStart(2, '0');
+      const day = String(user.birth_date.getDate()).padStart(2, '0');
+      dbBirthDate = `${year}-${month}-${day}`;
+    } else if (typeof user.birth_date === 'string') {
+      // ถ้าเป็น string ให้ตัดส่วนเวลาออก (ถ้ามี)
+      dbBirthDate = user.birth_date.split('T')[0].split(' ')[0];
+    } else {
+      // ถ้าเป็น type อื่น ให้แปลงเป็น Date ก่อน
+      const dateObj = new Date(user.birth_date);
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      dbBirthDate = `${year}-${month}-${day}`;
+    }
+
+    // เปรียบเทียบวันเดือนปีเกิด
+    if (dbBirthDate !== birth_date) {
+      return res.status(401).json({
+        success: false,
+        message: 'วันเดือนปีเกิดไม่ถูกต้อง'
+      });
+    }
 
     // อัพเดท last_login_date
     await pool.execute(
@@ -76,7 +131,9 @@ const login = async (req, res) => {
           employee_code: user.employee_code,
           department_id: user.department_id,
           position_id: user.position_id,
-          profile_image_url: user.profile_image_url
+          profile_image_url: user.profile_image_url,
+          in_time: user.in_time ? user.in_time.toString() : null,
+          out_time: user.out_time ? user.out_time.toString() : null
         }
       }
     });
@@ -96,7 +153,7 @@ const getCurrentUser = async (req, res) => {
     const [users] = await pool.execute(
       `SELECT Id, username, name, lastname, id_card_no, role, status, 
        email, contactnumber, employee_code, department_id, position_id,
-       last_login_date, created_date, profile_image_url
+       last_login_date, created_date, profile_image_url, in_time, out_time
        FROM tb_user 
        WHERE Id = ?`,
       [req.user.Id]
