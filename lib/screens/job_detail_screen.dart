@@ -44,84 +44,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     }
   }
 
-  Future<void> _handleCheckIn(int routeId, {bool isSecond = false}) async {
-    // แสดง loading
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    final result = await _jobOrderService.checkIn(routeId, isSecond: isSecond);
-
-    if (mounted) {
-      Navigator.of(context).pop(); // ปิด loading dialog
-
-      if (result['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] as String? ?? 'เช็คอินสำเร็จ'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        // Refresh ข้อมูล
-        await _refreshJobData();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] as String? ?? 'ไม่สามารถเช็คอินได้'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleCheckOut(int routeId, {bool isSecond = false}) async {
-    // แสดง loading
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    final result = await _jobOrderService.checkOut(routeId, isSecond: isSecond);
-
-    if (mounted) {
-      Navigator.of(context).pop(); // ปิด loading dialog
-
-      if (result['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] as String? ?? 'เช็คเอาท์สำเร็จ'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        // Refresh ข้อมูล
-        await _refreshJobData();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] as String? ?? 'ไม่สามารถเช็คเอาท์ได้'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -439,36 +361,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                 color: Colors.green,
               ),
             ],
-            // ปุ่ม Check In / Check Out สำหรับทุกการ์ด
-            const SizedBox(height: 16),
-            if (actualIn == null)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _handleCheckIn(route.id, isSecond: isSecond),
-                  icon: const Icon(Icons.login),
-                  label: const Text('เช็คอิน'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              )
-            else if (actualOut == null)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _handleCheckOut(route.id, isSecond: isSecond),
-                  icon: const Icon(Icons.logout),
-                  label: const Text('เช็คเอาท์'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -571,36 +463,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
             color: Colors.green,
           ),
         ],
-        // ปุ่ม Check In / Check Out
-        const SizedBox(height: 16),
-        if (route.actualIn == null)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => _handleCheckIn(route.id),
-              icon: const Icon(Icons.login),
-              label: const Text('เช็คอิน'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          )
-        else if (route.actualOut == null)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => _handleCheckOut(route.id),
-              icon: const Icon(Icons.logout),
-              label: const Text('เช็คเอาท์'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
       ],
     );
   }

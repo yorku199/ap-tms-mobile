@@ -1,12 +1,16 @@
 -- สร้างตาราง tb_check_in สำหรับเก็บข้อมูลการเช็คอิน/เช็คเอาท์
 -- แต่ละแถว = 1 ครั้งของการเช็คอินหรือเช็คเอาท์
 -- ระบบจะคำนวณ check out time จากแถวสุดท้ายของวันนั้น
+-- in_time และ out_time เก็บเวลาที่กำหนดเข้าออกงานของ user ณ เวลาที่ทำการเช็คอิน/เช็คเอาท์
+-- เพื่อป้องกันปัญหาการคำนวณผิดในอนาคตถ้า user เปลี่ยนเวลาเข้าออกงาน
 CREATE TABLE IF NOT EXISTS `tb_check_in` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `user_id` bigint(20) NOT NULL COMMENT 'FK FROM tb_user.Id',
   `yard_id` bigint(20) NOT NULL COMMENT 'FK FROM tb_user_yard.id',
   `check_in_time` datetime DEFAULT NULL COMMENT 'เวลาที่เช็คอิน/เช็คเอาท์',
   `type` varchar(20) DEFAULT 'check_in' COMMENT 'ประเภท: check_in หรือ check_out',
+  `in_time` TIME NULL COMMENT 'เวลาที่กำหนดให้เข้างาน ณ เวลาที่เช็คอิน/เช็คเอาท์ (เช่น 08:00:00)',
+  `out_time` TIME NULL COMMENT 'เวลาที่กำหนดให้ออกงาน ณ เวลาที่เช็คอิน/เช็คเอาท์ (เช่น 17:00:00)',
   `user_lat` decimal(10,6) DEFAULT NULL COMMENT 'Latitude ของผู้ใช้',
   `user_long` decimal(10,6) DEFAULT NULL COMMENT 'Longitude ของผู้ใช้',
   `yard_lat` decimal(10,6) DEFAULT NULL COMMENT 'Latitude ของ yard',

@@ -130,18 +130,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.work_outline),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const JobOrderScreen(),
-                ),
-              );
-            },
-            tooltip: 'งาน',
-          ),
-          IconButton(
             icon: const Icon(Icons.lock_open),
             onPressed: _logout,
             tooltip: 'ออกจากระบบ',
@@ -278,6 +266,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           context,
                           MaterialPageRoute(
                             builder: (context) => const CheckInScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildMenuCard(
+                      context,
+                      icon: Icons.work,
+                      iconColor: Colors.indigo,
+                      title: 'รับงาน',
+                      subtitle: 'Job Order',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const JobOrderScreen(),
                           ),
                         );
                       },

@@ -33,62 +33,6 @@ function toRad(degrees) {
   return (degrees * Math.PI) / 180;
 }
 
-// ดึงข้อมูล yard ของ user
-const getUserYards = async (req, res) => {
-  try {
-    const userId = req.user.Id;
-
-    // ดึง yard_id จาก user
-    const [users] = await pool.execute(
-      'SELECT yard_id FROM tb_user WHERE Id = ?',
-      [userId]
-    );
-
-    if (users.length === 0 || !users[0].yard_id) {
-      return res.json({
-        success: true,
-        message: 'ไม่พบ yard สำหรับ user นี้',
-        data: {
-          yards: [],
-        },
-      });
-    }
-
-    const yardId = users[0].yard_id;
-
-    // ดึงข้อมูล yard
-    const [yards] = await pool.execute(
-      'SELECT id, name, title, address, lat, `long`, radius FROM tb_user_yard WHERE id = ? AND status = 1',
-      [yardId]
-    );
-
-    const yardsData = yards.map((yard) => ({
-      id: yard.id,
-      name: yard.name,
-      title: yard.title,
-      address: yard.address,
-      lat: yard.lat ? parseFloat(yard.lat) : null,
-      long: yard.long ? parseFloat(yard.long) : null,
-      radius: yard.radius,
-    }));
-
-    res.json({
-      success: true,
-      message: 'ดึงข้อมูล yard สำเร็จ',
-      data: {
-        yards: yardsData,
-      },
-    });
-  } catch (error) {
-    console.error('Get user yards error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล yard',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-    });
-  }
-};
-
 // เช็คอิน
 const checkIn = async (req, res) => {
   try {
@@ -121,13 +65,14 @@ const checkIn = async (req, res) => {
       });
     }
 
-    // ดึงข้อมูล in_time ของ user
+    // ดึงข้อมูล in_time และ out_time ของ user
     const [users] = await pool.execute(
-      'SELECT in_time FROM tb_user WHERE Id = ?',
+      'SELECT in_time, out_time FROM tb_user WHERE Id = ?',
       [userId]
     );
 
     const userInTime = users.length > 0 ? users[0].in_time : null;
+    const userOutTime = users.length > 0 ? users[0].out_time : null;
     const currentTime = new Date();
     
     // คำนวณว่ามาสายหรือไม่ (ถ้ามี in_time)
@@ -158,7 +103,7 @@ const checkIn = async (req, res) => {
     if (yards.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบ yard ที่ระบุ',
+        message: 'ไม่พบสถานที่บริษัทที่ระบุ',
       });
     }
 
@@ -182,7 +127,7 @@ const checkIn = async (req, res) => {
       if (finalDistance > yard.radius) {
         return res.status(400).json({
           success: false,
-          message: `คุณอยู่นอกรัศมีที่กำหนด (${finalDistance.toFixed(2)} เมตร) กรุณาเข้าใกล้ yard ก่อนเช็คอิน`,
+          message: `คุณอยู่นอกรัศมีที่กำหนด (${finalDistance.toFixed(2)} เมตร) กรุณาเข้าใกล้สถานที่บริษัทก่อนเช็คอิน`,
           data: {
             distance: finalDistance,
             radius: yard.radius,
@@ -192,13 +137,16 @@ const checkIn = async (req, res) => {
     }
 
     // บันทึกข้อมูล check in (ทุก record ที่บันทึกได้จะอยู่ในรัศมีอยู่แล้ว)
+    // บันทึก in_time และ out_time ของ user ณ เวลาที่เช็คอินเพื่อป้องกันปัญหาการคำนวณผิดในอนาคต
     const [result] = await pool.execute(
       `INSERT INTO tb_check_in 
-       (user_id, yard_id, check_in_time, type, user_lat, user_long, yard_lat, yard_long, distance, created_by, created_date)
-       VALUES (?, ?, NOW(), 'check_in', ?, ?, ?, ?, ?, ?, NOW())`,
+       (user_id, yard_id, check_in_time, type, in_time, out_time, user_lat, user_long, yard_lat, yard_long, distance, created_by, created_date)
+       VALUES (?, ?, NOW(), 'check_in', ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         userId,
         yard_id,
+        userInTime, // บันทึก in_time ของ user ณ เวลาที่เช็คอิน
+        userOutTime, // บันทึก out_time ของ user ณ เวลาที่เช็คอิน
         user_lat,
         user_long,
         finalYardLat,
@@ -269,6 +217,21 @@ const checkOut = async (req, res) => {
     const yardLat = checkIns[0].yard_lat;
     const yardLong = checkIns[0].yard_long;
 
+    // ดึงข้อมูล yard เพื่อตรวจสอบ radius
+    const [yards] = await pool.execute(
+      'SELECT radius FROM tb_user_yard WHERE id = ?',
+      [yardId]
+    );
+
+    if (yards.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบสถานที่บริษัทที่ระบุ',
+      });
+    }
+
+    const yard = yards[0];
+
     // คำนวณระยะทาง
     let finalDistance = null;
     if (yardLat !== null && yardLong !== null) {
@@ -280,14 +243,40 @@ const checkOut = async (req, res) => {
       );
     }
 
+    // ตรวจสอบว่าอยู่ในรัศมีหรือไม่
+    if (yard.radius !== null && finalDistance !== null) {
+      if (finalDistance > yard.radius) {
+        return res.status(400).json({
+          success: false,
+          message: `คุณอยู่นอกรัศมีที่กำหนด (${finalDistance.toFixed(2)} เมตร) กรุณาเข้าใกล้สถานที่บริษัทก่อนเช็คเอาท์`,
+          data: {
+            distance: finalDistance,
+            radius: yard.radius,
+          },
+        });
+      }
+    }
+
+    // ดึงข้อมูล in_time และ out_time ของ user
+    const [users] = await pool.execute(
+      'SELECT in_time, out_time FROM tb_user WHERE Id = ?',
+      [userId]
+    );
+
+    const userInTime = users.length > 0 ? users[0].in_time : null;
+    const userOutTime = users.length > 0 ? users[0].out_time : null;
+
     // สร้างแถวใหม่สำหรับ check out (แทนการอัพเดท check_out_time)
+    // บันทึก in_time และ out_time ของ user ณ เวลาที่เช็คเอาท์เพื่อป้องกันปัญหาการคำนวณผิดในอนาคต
     const [result] = await pool.execute(
       `INSERT INTO tb_check_in 
-       (user_id, yard_id, check_in_time, type, user_lat, user_long, yard_lat, yard_long, distance, created_by, created_date)
-       VALUES (?, ?, NOW(), 'check_out', ?, ?, ?, ?, ?, ?, NOW())`,
+       (user_id, yard_id, check_in_time, type, in_time, out_time, user_lat, user_long, yard_lat, yard_long, distance, created_by, created_date)
+       VALUES (?, ?, NOW(), 'check_out', ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         userId,
         yardId,
+        userInTime, // บันทึก in_time ของ user ณ เวลาที่เช็คเอาท์
+        userOutTime, // บันทึก out_time ของ user ณ เวลาที่เช็คเอาท์
         user_lat,
         user_long,
         yardLat,
@@ -296,14 +285,6 @@ const checkOut = async (req, res) => {
         req.user.username || userId.toString(),
       ]
     );
-
-    // ดึงข้อมูล out_time ของ user
-    const [users] = await pool.execute(
-      'SELECT out_time FROM tb_user WHERE Id = ?',
-      [userId]
-    );
-
-    const userOutTime = users.length > 0 ? users[0].out_time : null;
     const currentTime = new Date();
 
     // คำนวณว่าออกก่อนเวลาหรือไม่ (ถ้ามี out_time)
@@ -355,11 +336,12 @@ const getLatestCheckIn = async (req, res) => {
   try {
     const userId = req.user.Id;
 
+    // ดึงข้อมูล check in ล่าสุด (type = 'check_in')
     const [checkIns] = await pool.execute(
-      `SELECT id, user_id, yard_id, check_in_time, check_out_time, 
+      `SELECT id, user_id, yard_id, check_in_time, type, in_time, out_time,
               user_lat, user_long, yard_lat, yard_long, distance
        FROM tb_check_in 
-       WHERE user_id = ? 
+       WHERE user_id = ? AND type = 'check_in'
        ORDER BY check_in_time DESC 
        LIMIT 1`,
       [userId]
@@ -376,6 +358,43 @@ const getLatestCheckIn = async (req, res) => {
     }
 
     const checkIn = checkIns[0];
+    
+    // ดึงข้อมูล check out ล่าสุดของวันเดียวกัน (ถ้ามี)
+    // หาวันที่ของ check in
+    const checkInDate = new Date(checkIn.check_in_time);
+    const checkInDateStart = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate());
+    const checkInDateEnd = new Date(checkInDateStart);
+    checkInDateEnd.setDate(checkInDateEnd.getDate() + 1);
+
+    const [checkOuts] = await pool.execute(
+      `SELECT id, check_in_time as check_out_time
+       FROM tb_check_in 
+       WHERE user_id = ? 
+         AND yard_id = ?
+         AND type = 'check_out'
+         AND check_in_time >= ? 
+         AND check_in_time < ?
+       ORDER BY check_in_time DESC 
+       LIMIT 1`,
+      [userId, checkIn.yard_id, checkInDateStart, checkInDateEnd]
+    );
+
+    let checkOutTime = null;
+    let checkOutInTime = null;
+    let checkOutOutTime = null;
+    if (checkOuts.length > 0) {
+      checkOutTime = checkOuts[0].check_out_time;
+      // ดึงข้อมูล in_time และ out_time จาก check out record
+      const [checkOutDetails] = await pool.execute(
+        `SELECT in_time, out_time FROM tb_check_in WHERE id = ?`,
+        [checkOuts[0].id]
+      );
+      if (checkOutDetails.length > 0) {
+        checkOutInTime = checkOutDetails[0].in_time;
+        checkOutOutTime = checkOutDetails[0].out_time;
+      }
+    }
+
     res.json({
       success: true,
       message: 'ดึงข้อมูล check in สำเร็จ',
@@ -385,7 +404,9 @@ const getLatestCheckIn = async (req, res) => {
           user_id: checkIn.user_id,
           yard_id: checkIn.yard_id,
           check_in_time: convertToThailandTime(checkIn.check_in_time),
-          check_out_time: convertToThailandTime(checkIn.check_out_time),
+          check_out_time: convertToThailandTime(checkOutTime),
+          in_time: checkIn.in_time ? checkIn.in_time.toString() : null, // in_time จาก check_in record
+          out_time: checkOutOutTime ? checkOutOutTime.toString() : null, // out_time จาก check_out record
           user_lat: checkIn.user_lat ? parseFloat(checkIn.user_lat) : null,
           user_long: checkIn.user_long ? parseFloat(checkIn.user_long) : null,
           yard_lat: checkIn.yard_lat ? parseFloat(checkIn.yard_lat) : null,
@@ -405,7 +426,6 @@ const getLatestCheckIn = async (req, res) => {
 };
 
 module.exports = {
-  getUserYards,
   checkIn,
   checkOut,
   getLatestCheckIn,

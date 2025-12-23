@@ -4,9 +4,6 @@ const checkInController = require('../controllers/checkInController');
 
 const router = express.Router();
 
-// GET /api/check-in/yards - ดึงข้อมูล yard ของ user
-router.get('/yards', authenticateToken, checkInController.getUserYards);
-
 // POST /api/check-in/check-in - เช็คอิน
 router.post('/check-in', authenticateToken, checkInController.checkIn);
 

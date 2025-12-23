@@ -7,6 +7,8 @@ const authRoutes = require('./routes/auth');
 const jobOrderRoutes = require('./routes/job_order');
 const userRoutes = require('./routes/user');
 const checkInRoutes = require('./routes/checkIn');
+const yardRoutes = require('./routes/yard');
+const checkInJobRoutes = require('./routes/checkInJob');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,6 +35,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/job-order', jobOrderRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/check-in', checkInRoutes);
+app.use('/api/yard', yardRoutes);
+app.use('/api/check-in-job', checkInJobRoutes);
 
 // 404 Handler
 app.use((req, res) => {

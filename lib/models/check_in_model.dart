@@ -36,6 +36,8 @@ class CheckIn {
   final int yardId;
   final DateTime? checkInTime;
   final DateTime? checkOutTime;
+  final String? inTime; // เวลาที่กำหนดให้เข้างาน ณ เวลาที่เช็คอิน (HH:MM:SS)
+  final String? outTime; // เวลาที่กำหนดให้ออกงาน ณ เวลาที่เช็คเอาท์ (HH:MM:SS)
   final double? userLat;
   final double? userLong;
   final double? yardLat;
@@ -48,6 +50,8 @@ class CheckIn {
     required this.yardId,
     this.checkInTime,
     this.checkOutTime,
+    this.inTime,
+    this.outTime,
     this.userLat,
     this.userLong,
     this.yardLat,
@@ -66,6 +70,8 @@ class CheckIn {
       checkOutTime: json['check_out_time'] != null
           ? DateTime.parse(json['check_out_time'] as String)
           : null,
+      inTime: json['in_time'] as String?,
+      outTime: json['out_time'] as String?,
       userLat: json['user_lat'] != null
           ? (json['user_lat'] as num).toDouble()
           : null,
@@ -80,6 +86,43 @@ class CheckIn {
           : null,
       distance: json['distance'] != null
           ? (json['distance'] as num).toDouble()
+          : null,
+    );
+  }
+}
+
+class CheckInJob {
+  final int id;
+  final int userId;
+  final DateTime? checkInTime;
+  final double? userLat;
+  final double? userLong;
+  final double? mileage;
+
+  CheckInJob({
+    required this.id,
+    required this.userId,
+    this.checkInTime,
+    this.userLat,
+    this.userLong,
+    this.mileage,
+  });
+
+  factory CheckInJob.fromJson(Map<String, dynamic> json) {
+    return CheckInJob(
+      id: json['id'] as int,
+      userId: json['userId'] as int,
+      checkInTime: json['checkInTime'] != null
+          ? DateTime.parse(json['checkInTime'] as String)
+          : null,
+      userLat: json['userLat'] != null
+          ? (json['userLat'] as num).toDouble()
+          : null,
+      userLong: json['userLong'] != null
+          ? (json['userLong'] as num).toDouble()
+          : null,
+      mileage: json['mileage'] != null
+          ? (json['mileage'] as num).toDouble()
           : null,
     );
   }

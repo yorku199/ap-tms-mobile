@@ -14,6 +14,7 @@ class CheckInScreen extends StatefulWidget {
 class _CheckInScreenState extends State<CheckInScreen> {
   final CheckInService _checkInService = CheckInService();
   Yard? _selectedYard;
+  List<Yard> _allYards = []; // เก็บรายการ yards ทั้งหมด
   Position? _currentPosition;
   double? _distance;
   bool _isWithinRadius = false;
@@ -42,12 +43,28 @@ class _CheckInScreenState extends State<CheckInScreen> {
       final latestCheckIn = await _checkInService.getLatestCheckIn();
 
       setState(() {
-        if (yards.isNotEmpty) {
+        _allYards = yards;
+        // กรองเฉพาะบริษัทที่มี title, lat, long, radius
+        final validYards = yards.where((yard) => 
+          yard.title != null && 
+          yard.title!.isNotEmpty && 
+          yard.lat != null && 
+          yard.long != null && 
+          yard.radius != null
+        ).toList();
+        
+        if (validYards.isNotEmpty) {
+          // เลือกบริษัทแรกที่มีข้อมูลครบ หรือบริษัทที่เลือกอยู่แล้ว
+          _selectedYard = _selectedYard != null && validYards.any((y) => y.id == _selectedYard!.id)
+              ? validYards.firstWhere((y) => y.id == _selectedYard!.id)
+              : validYards.first;
+        } else if (yards.isNotEmpty) {
           _selectedYard = yards.first;
         }
         _latestCheckIn = latestCheckIn;
         _isLoading = false;
       });
+
 
       // ดึงตำแหน่งปัจจุบัน
       await _getCurrentLocation();
@@ -171,11 +188,92 @@ class _CheckInScreenState extends State<CheckInScreen> {
     });
   }
 
+  // แสดง dialog เลือกบริษัท
+  Future<void> _showYardSelectionDialog() async {
+    // กรองเฉพาะบริษัทที่มี title, lat, long, radius
+    final validYards = _allYards.where((yard) => 
+      yard.title != null && 
+      yard.title!.isNotEmpty && 
+      yard.lat != null && 
+      yard.long != null && 
+      yard.radius != null
+    ).toList();
+
+    if (validYards.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ไม่พบบริษัทที่มีข้อมูลครบถ้วน'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final selectedYard = await showDialog<Yard>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('เลือกบริษัท'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: validYards.length,
+            itemBuilder: (context, index) {
+              final yard = validYards[index];
+              final isSelected = _selectedYard?.id == yard.id;
+              
+              return ListTile(
+                title: Text(yard.title ?? yard.name),
+                subtitle: yard.address != null && yard.address!.isNotEmpty
+                    ? Text(yard.address!)
+                    : null,
+                leading: Icon(
+                  isSelected ? Icons.check_circle : Icons.location_on,
+                  color: isSelected ? Colors.green : Colors.grey,
+                ),
+                selected: isSelected,
+                onTap: () {
+                  Navigator.of(context).pop(yard);
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('ยกเลิก'),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedYard != null) {
+      setState(() {
+        _selectedYard = selectedYard;
+      });
+
+      // อัปเดต map camera
+      if (_mapController != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLng(
+            LatLng(selectedYard.lat!, selectedYard.long!),
+          ),
+        );
+      }
+
+      // คำนวณระยะทางใหม่
+      if (_currentPosition != null) {
+        _calculateDistance();
+      }
+    }
+  }
+
   Future<void> _handleCheckIn() async {
     if (_selectedYard == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('กรุณาเลือก yard'),
+          content: Text('กรุณาเลือกสถานที่บริษัท'),
           backgroundColor: Colors.red,
         ),
       );
@@ -195,7 +293,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
     if (_selectedYard!.lat == null || _selectedYard!.long == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Yard นี้ยังไม่มีข้อมูลตำแหน่ง'),
+          content: Text('สถานที่บริษัทนี้ยังไม่มีข้อมูลตำแหน่ง'),
           backgroundColor: Colors.red,
         ),
       );
@@ -206,7 +304,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
     if (!_isWithinRadius) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('คุณอยู่นอกรัศมีที่กำหนด (${_distance?.toStringAsFixed(2) ?? 'N/A'} เมตร) กรุณาเข้าใกล้ yard ก่อนเช็คอิน'),
+          content: Text('คุณอยู่นอกรัศมีที่กำหนด (${_distance?.toStringAsFixed(2) ?? 'N/A'} เมตร) กรุณาเข้าใกล้สถานที่บริษัทก่อนเช็คอิน'),
           backgroundColor: Colors.orange,
           duration: const Duration(seconds: 4),
         ),
@@ -214,7 +312,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
       return;
     }
 
-    // แสดง dialog ยืนยัน
+    // แสดง dialog ยืนยัน (แสดงสถานะที่ถูกต้อง)
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -223,23 +321,37 @@ class _CheckInScreenState extends State<CheckInScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Yard: ${_selectedYard!.name}'),
+            Text('สถานที่บริษัท: ${_selectedYard!.title ?? _selectedYard!.name}'),
             const SizedBox(height: 8),
             Text('ระยะทาง: ${_distance?.toStringAsFixed(2) ?? 'N/A'} เมตร'),
             const SizedBox(height: 8),
-            const Row(
+            Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.green, size: 20),
-                SizedBox(width: 4),
+                Icon(
+                  _isWithinRadius ? Icons.check_circle : Icons.warning,
+                  color: _isWithinRadius ? Colors.green : Colors.orange,
+                  size: 20,
+                ),
+                const SizedBox(width: 4),
                 Text(
-                  'อยู่ในรัศมี',
+                  _isWithinRadius ? 'อยู่ในรัศมี' : 'อยู่นอกรัศมี',
                   style: TextStyle(
-                    color: Colors.green,
+                    color: _isWithinRadius ? Colors.green : Colors.orange,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
+            if (!_isWithinRadius) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'กรุณาเข้าใกล้สถานที่บริษัทก่อนเช็คอิน',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -247,8 +359,9 @@ class _CheckInScreenState extends State<CheckInScreen> {
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('ยกเลิก'),
           ),
+          // ปิดการใช้งานปุ่มยืนยันถ้าอยู่นอกรัศมี
           TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: _isWithinRadius ? () => Navigator.of(context).pop(true) : null,
             child: const Text('ยืนยัน'),
           ),
         ],
@@ -256,6 +369,56 @@ class _CheckInScreenState extends State<CheckInScreen> {
     );
 
     if (confirm != true) return;
+
+    // ตรวจสอบรัศมีอีกครั้งก่อนส่งไป API (ป้องกันการเปลี่ยนแปลงตำแหน่งระหว่างที่แสดง dialog)
+    // ดึงตำแหน่งปัจจุบันอีกครั้ง
+    try {
+      final currentPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+      
+      // คำนวณระยะทางอีกครั้ง
+      if (_selectedYard!.lat != null && _selectedYard!.long != null) {
+        final currentDistance = Geolocator.distanceBetween(
+          currentPosition.latitude,
+          currentPosition.longitude,
+          _selectedYard!.lat!,
+          _selectedYard!.long!,
+        );
+        
+        bool isWithinRadius = false;
+        if (_selectedYard!.radius != null) {
+          isWithinRadius = currentDistance <= _selectedYard!.radius!;
+        }
+        
+        if (!isWithinRadius) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('คุณอยู่นอกรัศมีที่กำหนด (${currentDistance.toStringAsFixed(2)} เมตร) กรุณาเข้าใกล้สถานที่บริษัทก่อนเช็คอิน'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+          return;
+        }
+        
+        // อัปเดตตำแหน่งและระยะทาง
+        setState(() {
+          _currentPosition = currentPosition;
+          _distance = currentDistance;
+          _isWithinRadius = isWithinRadius;
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ไม่สามารถตรวจสอบตำแหน่งได้: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     // แสดง loading
     if (mounted) {
@@ -282,14 +445,41 @@ class _CheckInScreenState extends State<CheckInScreen> {
         Navigator.of(context).pop(); // ปิด loading dialog
 
         if (result['success'] == true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result['message'] ?? 'เช็คอินสำเร็จ'),
-              backgroundColor: Colors.green,
-            ),
-          );
           // รีโหลดข้อมูล
           await _loadData();
+          
+          // แสดงเวลาเช็คอินหลังจากทำรายการสำเร็จ
+          if (_latestCheckIn != null && _latestCheckIn!.checkInTime != null) {
+            final checkInTime = _formatDateTime(_latestCheckIn!.checkInTime!);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(result['message'] ?? 'เช็คอินสำเร็จ'),
+                    const SizedBox(height: 4),
+                    Text(
+                      'เวลาเช็คอิน: $checkInTime',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(result['message'] ?? 'เช็คอินสำเร็จ'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -351,6 +541,36 @@ class _CheckInScreenState extends State<CheckInScreen> {
       return;
     }
 
+    // ตรวจสอบว่าอยู่ในรัศมีหรือไม่ (ต้องตรวจสอบก่อนเช็คเอาท์)
+    if (_selectedYard != null && _selectedYard!.lat != null && _selectedYard!.long != null && _selectedYard!.radius != null) {
+      // คำนวณระยะทางอีกครั้ง
+      final currentDistance = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        _selectedYard!.lat!,
+        _selectedYard!.long!,
+      );
+      
+      final isWithinRadius = currentDistance <= _selectedYard!.radius!;
+      
+      if (!isWithinRadius) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('คุณอยู่นอกรัศมีที่กำหนด (${currentDistance.toStringAsFixed(2)} เมตร) กรุณาเข้าใกล้สถานที่บริษัทก่อนเช็คเอาท์'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+      
+      // อัปเดตระยะทาง
+      setState(() {
+        _distance = currentDistance;
+        _isWithinRadius = isWithinRadius;
+      });
+    }
+
     // แสดง loading
     if (mounted) {
       showDialog(
@@ -372,14 +592,49 @@ class _CheckInScreenState extends State<CheckInScreen> {
         Navigator.of(context).pop(); // ปิด loading dialog
 
         if (result['success'] == true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result['message'] ?? 'เช็คเอาท์สำเร็จ'),
-              backgroundColor: Colors.green,
-            ),
-          );
           // รีโหลดข้อมูล
           await _loadData();
+          
+          // แสดงเวลาเช็คเอาท์หลังจากทำรายการสำเร็จ
+          if (_latestCheckIn != null && _latestCheckIn!.checkOutTime != null) {
+            final checkOutTime = _formatDateTime(_latestCheckIn!.checkOutTime!);
+            final checkInTimeText = _latestCheckIn!.checkInTime != null
+                ? _formatDateTime(_latestCheckIn!.checkInTime!)
+                : 'N/A';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(result['message'] ?? 'เช็คเอาท์สำเร็จ'),
+                    const SizedBox(height: 4),
+                    Text(
+                      'เวลาเช็คอิน: $checkInTimeText',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'เวลาเช็คเอาท์: $checkOutTime',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(result['message'] ?? 'เช็คเอาท์สำเร็จ'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -515,44 +770,44 @@ class _CheckInScreenState extends State<CheckInScreen> {
                       top: 16,
                       left: 16,
                       right: 16,
-                      child: Card(
-                        elevation: 4,
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text(
-                                'สถานที่บริษัท',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
+                      child: InkWell(
+                        onTap: _showYardSelectionDialog,
+                        borderRadius: BorderRadius.circular(4),
+                        child: Card(
+                          elevation: 4,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'สถานที่บริษัท',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.arrow_drop_down,
+                                      color: Colors.grey,
+                                    ),
+                                  ],
                                 ),
-                              ),
                               const SizedBox(height: 12),
                               if (_selectedYard != null) ...[
-                                // แสดงชื่อ
+                                // แสดงชื่อ (ใช้ title แทน name)
                                 Text(
-                                  'ชื่อ: ${_selectedYard!.name}',
+                                  'ชื่อ: ${_selectedYard!.title ?? _selectedYard!.name}',
                                   style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                // แสดง title
-                                if (_selectedYard!.title != null && _selectedYard!.title!.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Text(
-                                      'หัวข้อ: ${_selectedYard!.title}',
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
                                 // แสดง address
                                 if (_selectedYard!.address != null && _selectedYard!.address!.isNotEmpty)
                                   Padding(
@@ -599,6 +854,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
                         ),
                       ),
                     ),
+                    ),
 
                     // ปุ่มเช็คอิน/เช็คเอาท์ด้านล่างสุด
                     Positioned(
@@ -614,41 +870,178 @@ class _CheckInScreenState extends State<CheckInScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              // Latest check in/out info
+                              // แสดงช่องเวลาเช็คอินและเวลาเช็คเอาท์
                               if (_latestCheckIn != null)
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue[50],
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.blue.shade200),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Row(
                                     children: [
-                                      const Text(
-                                        'เช็คอินล่าสุด',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
+                                      // ช่องที่ 1: เวลาเช็คอิน
                                       if (_latestCheckIn!.checkInTime != null)
-                                        Text(
-                                          'เวลาเข้า: ${_formatDateTime(_latestCheckIn!.checkInTime!)}',
-                                          style: const TextStyle(fontSize: 12),
+                                        Expanded(
+                                          child: Builder(
+                                            builder: (context) {
+                                              // ใช้ in_time จาก check_in record แทน user.inTime เพื่อความถูกต้อง
+                                              final timeDiff = _calculateCheckInTimeDifference(
+                                                _latestCheckIn!.checkInTime!,
+                                                _latestCheckIn!.inTime,
+                                              );
+
+                                              return Container(
+                                                padding: const EdgeInsets.all(10),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.green[50],
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(color: Colors.green.shade200, width: 1),
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    const Text(
+                                                      'เวลาเช็คอิน',
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.grey,
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Row(
+                                                      children: [
+                                                        const Icon(Icons.login, size: 14, color: Colors.green),
+                                                        const SizedBox(width: 4),
+                                                        Flexible(
+                                                          child: Text(
+                                                            _formatDateTime(_latestCheckIn!.checkInTime!),
+                                                            style: const TextStyle(
+                                                              fontSize: 12,
+                                                              fontWeight: FontWeight.bold,
+                                                              color: Colors.green,
+                                                            ),
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    // แสดงว่าสายหรือก่อนเวลา (แสดงเสมอ)
+                                                    const SizedBox(height: 6),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: timeDiff != null
+                                                            ? (timeDiff.contains('สาย')
+                                                                ? Colors.red[100]
+                                                                : timeDiff.contains('ก่อนเวลา')
+                                                                    ? Colors.blue[100]
+                                                                    : Colors.green[100])
+                                                            : Colors.grey[200],
+                                                        borderRadius: BorderRadius.circular(4),
+                                                      ),
+                                                      child: Text(
+                                                        timeDiff ?? 'ไม่มีข้อมูลเวลา',
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: timeDiff != null
+                                                              ? (timeDiff.contains('สาย')
+                                                                  ? Colors.red[800]
+                                                                  : timeDiff.contains('ก่อนเวลา')
+                                                                      ? Colors.blue[800]
+                                                                      : Colors.green[800])
+                                                              : Colors.grey[600],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ),
+                                      // ช่องที่ 2: เวลาเช็คเอาท์
                                       if (_latestCheckIn!.checkOutTime != null) ...[
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'เวลาออก: ${_formatDateTime(_latestCheckIn!.checkOutTime!)}',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.orange,
+                                        if (_latestCheckIn!.checkInTime != null)
+                                          const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Container(
+                                            padding: const EdgeInsets.all(10),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange[50],
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: Colors.orange.shade200, width: 1),
+                                            ),
+                                            child: Builder(
+                                              builder: (context) {
+                                                // ใช้ out_time จาก check_out record แทน user.outTime เพื่อความถูกต้อง
+                                                final timeDiff = _calculateCheckOutTimeDifference(
+                                                  _latestCheckIn!.checkOutTime!,
+                                                  _latestCheckIn!.outTime,
+                                                );
+
+                                                return Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    const Text(
+                                                      'เวลาเช็คเอาท์',
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors.grey,
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Row(
+                                                      children: [
+                                                        const Icon(Icons.logout, size: 14, color: Colors.orange),
+                                                        const SizedBox(width: 4),
+                                                        Flexible(
+                                                          child: Text(
+                                                            _formatDateTime(_latestCheckIn!.checkOutTime!),
+                                                            style: const TextStyle(
+                                                              fontSize: 12,
+                                                              fontWeight: FontWeight.bold,
+                                                              color: Colors.orange,
+                                                            ),
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    // แสดงว่าออกก่อนเวลาหรือหลังเวลา (แสดงเสมอ)
+                                                    const SizedBox(height: 6),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: timeDiff != null
+                                                            ? (timeDiff.contains('ก่อนเวลา')
+                                                                ? Colors.red[100]
+                                                                : timeDiff.contains('หลังเวลา')
+                                                                    ? Colors.blue[100]
+                                                                    : Colors.green[100])
+                                                            : Colors.grey[200],
+                                                        borderRadius: BorderRadius.circular(4),
+                                                      ),
+                                                      child: Text(
+                                                        timeDiff ?? 'ไม่มีข้อมูลเวลา',
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: timeDiff != null
+                                                              ? (timeDiff.contains('ก่อนเวลา')
+                                                                  ? Colors.red[800]
+                                                                  : timeDiff.contains('หลังเวลา')
+                                                                      ? Colors.blue[800]
+                                                                      : Colors.green[800])
+                                                              : Colors.grey[600],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                );
+                                              },
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -657,34 +1050,84 @@ class _CheckInScreenState extends State<CheckInScreen> {
                                 ),
 
                               // Check In/Out button
-                              // แสดงปุ่มเช็คอินถ้ายังไม่มี check in วันนี้ หรือแสดงปุ่มเช็คเอาท์ถ้ามี check in วันนี้
-                              // อนุญาตให้เช็คเอาท์ได้หลายครั้งในวันเดียวกัน
-                              if (_latestCheckIn == null || _isNewDay(_latestCheckIn!.checkInTime))
-                                ElevatedButton.icon(
-                                  onPressed: _handleCheckIn,
-                                  icon: const Icon(Icons.login),
-                                  label: const Text('เช็คอิน'),
-                                  style: ElevatedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    backgroundColor: Colors.green,
-                                    foregroundColor: Colors.white,
-                                    elevation: 0,
-                                    minimumSize: const Size(double.infinity, 50),
-                                  ),
-                                )
-                              else
-                                ElevatedButton.icon(
-                                  onPressed: _handleCheckOut,
-                                  icon: const Icon(Icons.logout),
-                                  label: const Text('เช็คเอาท์'),
-                                  style: ElevatedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    backgroundColor: Colors.orange,
-                                    foregroundColor: Colors.white,
-                                    elevation: 0,
-                                    minimumSize: const Size(double.infinity, 50),
-                                  ),
-                                ),
+                              // ตรวจสอบว่าวันนี้มีการ check in แล้วหรือไม่
+                              // ถ้ามี check in ในวันเดียวกัน (ไม่ใช่วันใหม่) ให้แสดงปุ่มเช็คเอาท์ทันที
+                              Builder(
+                                builder: (context) {
+                                  // ตรวจสอบว่าวันนี้มีการ check in แล้วหรือไม่
+                                  // ตรวจสอบทันทีเมื่อเปิดหน้า
+                                  final bool hasCheckInToday = _latestCheckIn != null && 
+                                      _latestCheckIn!.checkInTime != null &&
+                                      !_isNewDay(_latestCheckIn!.checkInTime);
+                                  
+                                  // ถ้ายังไม่มี check in ในวันนี้ หรือเป็นวันใหม่
+                                  if (!hasCheckInToday) {
+                                    // แสดงปุ่มเช็คอิน
+                                    return Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // แสดงเวลาเช็คอินล่าสุดเหนือปุ่ม (ถ้ามี)
+                                        if (_latestCheckIn != null && _latestCheckIn!.checkInTime != null)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                            margin: const EdgeInsets.only(bottom: 8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.green[50],
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: Colors.green.shade200),
+                                            ),
+                                            child: Row(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                const Icon(Icons.access_time, size: 16, color: Colors.green),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  'เวลาเช็คอินล่าสุด: ${_formatDateTime(_latestCheckIn!.checkInTime!)}',
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.green,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ElevatedButton.icon(
+                                          onPressed: _handleCheckIn,
+                                          icon: const Icon(Icons.login),
+                                          label: const Text('เช็คอิน'),
+                                          style: ElevatedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(vertical: 16),
+                                            backgroundColor: Colors.green,
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                            minimumSize: const Size(double.infinity, 50),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  } else {
+                                    // แสดงปุ่มเช็คเอาท์ - มีการเช็คอินแล้วในวันนี้
+                                    return Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        ElevatedButton.icon(
+                                          onPressed: _handleCheckOut,
+                                          icon: const Icon(Icons.logout),
+                                          label: const Text('เช็คเอาท์'),
+                                          style: ElevatedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(vertical: 16),
+                                            backgroundColor: Colors.orange,
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                            minimumSize: const Size(double.infinity, 50),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }
+                                },
+                              ),
                             ],
                           ),
                         ),
@@ -746,6 +1189,104 @@ class _CheckInScreenState extends State<CheckInScreen> {
     
     // ถ้า check in time ไม่ใช่วันนี้ แสดงว่าขึ้นวันใหม่แล้ว
     return checkInDate.isBefore(today);
+  }
+
+  // คำนวณว่าสายหรือก่อนเวลากี่ชั่วโมงกี่นาที (สำหรับเช็คอิน)
+  String? _calculateCheckInTimeDifference(DateTime checkInTime, String? inTime) {
+    if (inTime == null || inTime.isEmpty) return null;
+
+    try {
+      // แปลง inTime (HH:MM:SS) เป็น DateTime สำหรับวันนี้
+      final timeParts = inTime.split(':');
+      if (timeParts.length < 2) return null;
+
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      // ใช้เฉพาะเวลา (ชั่วโมงและนาที) ของ checkInTime เพื่อเปรียบเทียบ
+      final checkInHour = checkInTime.hour;
+      final checkInMinute = checkInTime.minute;
+
+      // คำนวณความแตกต่างเป็นนาที
+      final checkInTotalMinutes = checkInHour * 60 + checkInMinute;
+      final scheduledTotalMinutes = hour * 60 + minute;
+      final differenceInMinutes = checkInTotalMinutes - scheduledTotalMinutes;
+
+      if (differenceInMinutes > 0) {
+        // สาย
+        final hours = differenceInMinutes ~/ 60;
+        final minutes = differenceInMinutes % 60;
+        if (hours > 0) {
+          return 'สาย $hours ชม. $minutes นาที';
+        } else {
+          return 'สาย $minutes นาที';
+        }
+      } else if (differenceInMinutes < 0) {
+        // ก่อนเวลา
+        final absMinutes = differenceInMinutes.abs();
+        final hours = absMinutes ~/ 60;
+        final minutes = absMinutes % 60;
+        if (hours > 0) {
+          return 'ก่อนเวลา $hours ชม. $minutes นาที';
+        } else {
+          return 'ก่อนเวลา $minutes นาที';
+        }
+      } else {
+        // ตรงเวลา
+        return 'ตรงเวลา';
+      }
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // คำนวณว่าออกก่อนเวลาหรือหลังเวลากี่ชั่วโมงกี่นาที (สำหรับเช็คเอาท์)
+  String? _calculateCheckOutTimeDifference(DateTime checkOutTime, String? outTime) {
+    if (outTime == null || outTime.isEmpty) return null;
+
+    try {
+      // แปลง outTime (HH:MM:SS) เป็น DateTime สำหรับวันนี้
+      final timeParts = outTime.split(':');
+      if (timeParts.length < 2) return null;
+
+      final hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+
+      // ใช้เฉพาะเวลา (ชั่วโมงและนาที) ของ checkOutTime เพื่อเปรียบเทียบ
+      final checkOutHour = checkOutTime.hour;
+      final checkOutMinute = checkOutTime.minute;
+
+      // คำนวณความแตกต่างเป็นนาที
+      final checkOutTotalMinutes = checkOutHour * 60 + checkOutMinute;
+      final scheduledTotalMinutes = hour * 60 + minute;
+      final differenceInMinutes = checkOutTotalMinutes - scheduledTotalMinutes;
+
+      if (differenceInMinutes > 0) {
+        // หลังเวลา
+        final hours = differenceInMinutes ~/ 60;
+        final minutes = differenceInMinutes % 60;
+        if (hours > 0) {
+          return 'หลังเวลา $hours ชม. $minutes นาที';
+        } else {
+          return 'หลังเวลา $minutes นาที';
+        }
+      } else if (differenceInMinutes < 0) {
+        // ก่อนเวลา
+        final absMinutes = differenceInMinutes.abs();
+        final hours = absMinutes ~/ 60;
+        final minutes = absMinutes % 60;
+        if (hours > 0) {
+          return 'ก่อนเวลา $hours ชม. $minutes นาที';
+        } else {
+          return 'ก่อนเวลา $minutes นาที';
+        }
+      } else {
+        // ตรงเวลา
+        return 'ตรงเวลา';
+      }
+    } catch (e) {
+      return null;
+    }
   }
 
   @override

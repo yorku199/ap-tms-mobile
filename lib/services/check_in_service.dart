@@ -26,7 +26,7 @@ class CheckInService {
   Future<List<Yard>> getUserYards() async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/api/check-in/yards'),
+        Uri.parse('$baseUrl/api/yard/yards'),
         headers: await _getHeaders(),
       );
 
@@ -145,6 +145,68 @@ class CheckInService {
       }
     } catch (e) {
       return null;
+    }
+  }
+
+  // เช็คอินเข้างาน
+  Future<Map<String, dynamic>> checkInJob({
+    required double userLat,
+    required double userLong,
+    required double mileage,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/check-in-job/check-in'),
+        headers: await _getHeaders(),
+        body: jsonEncode({
+          'user_lat': userLat,
+          'user_long': userLong,
+          'mileage': mileage,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'เช็คอินเข้างานสำเร็จ',
+          'data': data['data'],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'ไม่สามารถเช็คอินเข้างานได้',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: ${e.toString()}',
+      };
+    }
+  }
+
+  // ดึงข้อมูลเช็คอินเข้างานล่าสุด
+  Future<CheckInJob?> getLatestCheckInJob() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/check-in-job/latest'),
+        headers: await _getHeaders(),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        if (data['data'] == null) {
+          return null;
+        }
+        return CheckInJob.fromJson(data['data']);
+      } else {
+        throw Exception(data['message'] ?? 'ไม่สามารถดึงข้อมูลเช็คอินเข้างานได้');
+      }
+    } catch (e) {
+      throw Exception('เกิดข้อผิดพลาด: ${e.toString()}');
     }
   }
 }
