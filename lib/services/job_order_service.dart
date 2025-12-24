@@ -21,10 +21,17 @@ class JobOrderService {
   }
 
   // ดึง job orders ของ driver ณ วันนั้น
-  Future<Map<String, dynamic>> getJobOrders() async {
+  Future<Map<String, dynamic>> getJobOrders({DateTime? date}) async {
     try {
+      final uri = Uri.parse('${ApiConfig.baseUrl}/api/job-order');
+      final uriWithParams = date != null
+          ? uri.replace(queryParameters: {
+              'date': '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
+            })
+          : uri;
+      
       final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/api/job-order'),
+        uriWithParams,
         headers: await _getHeaders(),
       );
 

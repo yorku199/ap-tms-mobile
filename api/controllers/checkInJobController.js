@@ -1,10 +1,29 @@
 const pool = require('../config/database');
 
+// ฟังก์ชันแปลง datetime จาก UTC เป็น UTC+7 (Thailand timezone)
+const convertToThailandTime = (date) => {
+  if (!date) return null;
+  // ถ้าเป็น string ให้แปลงเป็น Date object ก่อน
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) return null;
+  
+  // เพิ่ม 7 ชั่วโมง (UTC+7)
+  const thailandTime = new Date(dateObj.getTime() + (7 * 60 * 60 * 1000));
+  return thailandTime;
+};
+
 // เช็คอินเข้างาน
 const checkInJob = async (req, res) => {
+  console.log('🔵 [CheckInJob] ========================================');
+  console.log('🔵 [CheckInJob] API called: POST /api/check-in-job/check-in');
+  console.log('🔵 [CheckInJob] Request body:', JSON.stringify(req.body));
+  console.log('🔵 [CheckInJob] User ID:', req.user?.Id);
+  
   try {
     const userId = req.user.Id;
     const { user_lat, user_long, mileage } = req.body;
+    
+    console.log('🔵 [CheckInJob] Parsed data - userId:', userId, 'user_lat:', user_lat, 'user_long:', user_long, 'mileage:', mileage);
 
     // ตรวจสอบข้อมูลที่จำเป็น
     if (user_lat === undefined || user_long === undefined) {
@@ -22,114 +41,264 @@ const checkInJob = async (req, res) => {
       });
     }
 
-    // ตรวจสอบว่ามี check in วันนี้หรือไม่
-    const [existingCheckIn] = await pool.execute(
-      `SELECT id FROM tb_check_in_job 
-       WHERE user_id = ? 
-       AND DATE(check_in_time) = DATE(NOW())
-       AND status = 1
-       ORDER BY check_in_time DESC 
-       LIMIT 1`,
-      [userId]
+    // ตรวจสอบและอัปเดต job routes ที่มี plan_in, plan_in2, plan_out, plan_out2
+    // ทำก่อนการตรวจสอบ existing check-in เพื่อให้ตรวจสอบทุกครั้งที่มีการเช็คอิน
+    // แปลงเวลาเป็นเวลาไทย (UTC+7)
+    const now = new Date();
+    const checkInTime = convertToThailandTime(now);
+    
+    // คำนวณวันที่จากเวลาไทย
+    const checkInDate = new Date(checkInTime);
+    checkInDate.setHours(0, 0, 0, 0);
+    // แปลงกลับเป็น UTC สำหรับใช้ใน SQL query (เพราะ database เก็บเป็น UTC)
+    const checkInDateUTC = new Date(checkInDate.getTime() - (7 * 60 * 60 * 1000));
+    const checkInDateStr = checkInDateUTC.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    console.log(`🔵 [CheckInJob] Checking routes for actual_in/actual_out updates...`);
+    console.log(`[CheckIn] UTC time: ${now.toISOString()}`);
+    console.log(`[CheckIn] Thailand time: ${checkInTime.toISOString()}`);
+    console.log(`[CheckIn] Thailand date: ${checkInDate.toISOString().split('T')[0]}`);
+    console.log(`[CheckIn] Searching routes for driver_id: ${userId}, date: ${checkInDateStr} (UTC)`);
+    console.log(`[CheckIn] Check-in time (Thailand): ${checkInTime.toISOString()}`);
+    
+    const [routes] = await pool.execute(
+      `SELECT jr.id, jr.job_id, jr.plan_in, jr.plan_out, jr.plan_in2, jr.plan_out2, 
+              jr.actual_in, jr.actual_out, jr.actual_in2, jr.actual_out2
+       FROM tb_job_route jr
+       INNER JOIN tb_job_master jm ON jr.job_id = jm.job_id
+       WHERE jm.driver_id = ?
+         AND (
+           (jr.plan_in IS NOT NULL AND DATE(jr.plan_in) = ? AND jr.actual_in IS NULL) OR
+           (jr.plan_in2 IS NOT NULL AND DATE(jr.plan_in2) = ? AND jr.actual_in2 IS NULL) OR
+           (jr.plan_out IS NOT NULL AND DATE(jr.plan_out) = ? AND jr.actual_out IS NULL) OR
+           (jr.plan_out2 IS NOT NULL AND DATE(jr.plan_out2) = ? AND jr.actual_out2 IS NULL)
+         )
+       ORDER BY COALESCE(jr.plan_in, jr.plan_in2) ASC`,
+      [userId, checkInDateStr, checkInDateStr, checkInDateStr, checkInDateStr]
     );
 
-    if (existingCheckIn.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'คุณได้เช็คอินเข้างานวันนี้แล้ว',
-      });
+    console.log(`[CheckIn] Found ${routes.length} route(s) to check`);
+    
+    const updatedRoutes = [];
+    
+    // ตรวจสอบและอัปเดต actual_in/actual_out ก่อน
+    for (const route of routes) {
+      console.log(`[CheckIn] ========================================`);
+      console.log(`[CheckIn] Route ID: ${route.id}, Job ID: ${route.job_id}`);
+      if (route.plan_in) {
+        const planInTh = convertToThailandTime(route.plan_in);
+        console.log(`[CheckIn] Plan_in: ${new Date(route.plan_in).toISOString()} (UTC) / ${planInTh.toISOString()} (Thailand)`);
+      } else {
+        console.log(`[CheckIn] Plan_in: null`);
+      }
+      if (route.plan_out) {
+        const planOutTh = convertToThailandTime(route.plan_out);
+        console.log(`[CheckIn] Plan_out: ${new Date(route.plan_out).toISOString()} (UTC) / ${planOutTh.toISOString()} (Thailand)`);
+      } else {
+        console.log(`[CheckIn] Plan_out: null`);
+      }
+      if (route.plan_in2) {
+        const planIn2Th = convertToThailandTime(route.plan_in2);
+        console.log(`[CheckIn] Plan_in2: ${new Date(route.plan_in2).toISOString()} (UTC) / ${planIn2Th.toISOString()} (Thailand)`);
+      } else {
+        console.log(`[CheckIn] Plan_in2: null`);
+      }
+      if (route.plan_out2) {
+        const planOut2Th = convertToThailandTime(route.plan_out2);
+        console.log(`[CheckIn] Plan_out2: ${new Date(route.plan_out2).toISOString()} (UTC) / ${planOut2Th.toISOString()} (Thailand)`);
+      } else {
+        console.log(`[CheckIn] Plan_out2: null`);
+      }
+      if (route.actual_in) {
+        const actualInTh = convertToThailandTime(route.actual_in);
+        console.log(`[CheckIn] Actual_in: ${new Date(route.actual_in).toISOString()} (UTC) / ${actualInTh.toISOString()} (Thailand)`);
+      } else {
+        console.log(`[CheckIn] Actual_in: null`);
+      }
+      if (route.actual_out) {
+        const actualOutTh = convertToThailandTime(route.actual_out);
+        console.log(`[CheckIn] Actual_out: ${new Date(route.actual_out).toISOString()} (UTC) / ${actualOutTh.toISOString()} (Thailand)`);
+      } else {
+        console.log(`[CheckIn] Actual_out: null`);
+      }
+      if (route.actual_in2) {
+        const actualIn2Th = convertToThailandTime(route.actual_in2);
+        console.log(`[CheckIn] Actual_in2: ${new Date(route.actual_in2).toISOString()} (UTC) / ${actualIn2Th.toISOString()} (Thailand)`);
+      } else {
+        console.log(`[CheckIn] Actual_in2: null`);
+      }
+      if (route.actual_out2) {
+        const actualOut2Th = convertToThailandTime(route.actual_out2);
+        console.log(`[CheckIn] Actual_out2: ${new Date(route.actual_out2).toISOString()} (UTC) / ${actualOut2Th.toISOString()} (Thailand)`);
+      } else {
+        console.log(`[CheckIn] Actual_out2: null`);
+      }
+      console.log(`[CheckIn] Check-in time (Thailand): ${checkInTime.toISOString()}`);
+      
+      // ตรวจสอบ actual_in: ถ้าเวลาเช็คอินมากกว่า plan_in ให้ใส่เวลาเช็คอินที่ actual_in
+      let actualInUpdated = false;
+      if (route.actual_in === null && 
+          route.plan_in !== null) {
+        const planInTimeUTC = new Date(route.plan_in);
+        const planInTime = convertToThailandTime(planInTimeUTC);
+        console.log(`[CheckIn] Checking actual_in - Plan_in (UTC): ${planInTimeUTC.toISOString()}, Plan_in (Thailand): ${planInTime.toISOString()}, Check-in (Thailand): ${checkInTime.toISOString()}, Is greater: ${checkInTime > planInTime}`);
+        if (checkInTime > planInTime) {
+          // แปลงกลับเป็น UTC สำหรับบันทึกลง database
+          const checkInTimeUTC = new Date(checkInTime.getTime() - (7 * 60 * 60 * 1000));
+          await pool.execute(
+            `UPDATE tb_job_route 
+             SET actual_in = ?, updated_by = ?, updated_date = NOW() 
+             WHERE id = ?`,
+            [checkInTimeUTC, req.user.username || userId.toString(), route.id]
+          );
+          console.log(`[CheckIn] ✅ Updated actual_in for route ${route.id}`);
+          updatedRoutes.push({ routeId: route.id, field: 'actual_in' });
+          // อัปเดต route.actual_in เพื่อให้สามารถตรวจสอบ actual_out ได้ในรอบเดียวกัน
+          route.actual_in = checkInTimeUTC;
+          actualInUpdated = true;
+        } else {
+          console.log(`[CheckIn] ❌ Skipped actual_in - Check-in time is not greater than plan_in`);
+        }
+      } else {
+        if (route.actual_in !== null) {
+          console.log(`[CheckIn] ⚠️ Skipped actual_in - already has value: ${new Date(route.actual_in).toISOString()}`);
+        } else if (route.plan_in === null) {
+          console.log(`[CheckIn] ⚠️ Skipped actual_in - plan_in is null`);
+        }
+      }
+
+      // ตรวจสอบ actual_in2: ถ้าเวลาเช็คอินมากกว่า plan_in2 ให้ใส่เวลาเช็คอินที่ actual_in2
+      let actualIn2Updated = false;
+      if (route.actual_in2 === null && 
+          route.plan_in2 !== null) {
+        const planIn2TimeUTC = new Date(route.plan_in2);
+        const planIn2Time = convertToThailandTime(planIn2TimeUTC);
+        console.log(`[CheckIn] Checking actual_in2 - Plan_in2 (UTC): ${planIn2TimeUTC.toISOString()}, Plan_in2 (Thailand): ${planIn2Time.toISOString()}, Check-in (Thailand): ${checkInTime.toISOString()}, Is greater: ${checkInTime > planIn2Time}`);
+        if (checkInTime > planIn2Time) {
+          // แปลงกลับเป็น UTC สำหรับบันทึกลง database
+          const checkInTimeUTC = new Date(checkInTime.getTime() - (7 * 60 * 60 * 1000));
+          await pool.execute(
+            `UPDATE tb_job_route 
+             SET actual_in2 = ?, updated_by = ?, updated_date = NOW() 
+             WHERE id = ?`,
+            [checkInTimeUTC, req.user.username || userId.toString(), route.id]
+          );
+          console.log(`[CheckIn] ✅ Updated actual_in2 for route ${route.id}`);
+          updatedRoutes.push({ routeId: route.id, field: 'actual_in2' });
+          // อัปเดต route.actual_in2 เพื่อให้สามารถตรวจสอบ actual_out2 ได้ในรอบเดียวกัน
+          route.actual_in2 = checkInTimeUTC;
+          actualIn2Updated = true;
+        } else {
+          console.log(`[CheckIn] ❌ Skipped actual_in2 - Check-in time is not greater than plan_in2`);
+        }
+      } else {
+        if (route.actual_in2 !== null) {
+          console.log(`[CheckIn] ⚠️ Skipped actual_in2 - already has value: ${new Date(route.actual_in2).toISOString()}`);
+        } else if (route.plan_in2 === null) {
+          console.log(`[CheckIn] ⚠️ Skipped actual_in2 - plan_in2 is null`);
+        }
+      }
+
+      // ตรวจสอบ actual_out: ถ้าเวลาเช็คอินมากกว่า plan_out และมี actual_in แล้ว ให้ใส่เวลาเช็คอินที่ actual_out
+      console.log(`[CheckIn] ========== Checking actual_out ==========`);
+      console.log(`[CheckIn] Route ID: ${route.id}`);
+      console.log(`[CheckIn] actual_out is null: ${route.actual_out === null}`);
+      console.log(`[CheckIn] plan_out is not null: ${route.plan_out !== null}`);
+      console.log(`[CheckIn] actual_in is not null: ${route.actual_in !== null}`);
+      console.log(`[CheckIn] actual_in was just updated: ${actualInUpdated}`);
+      
+      if (route.actual_out === null && 
+          route.plan_out !== null && 
+          (route.actual_in !== null || actualInUpdated)) {
+        const planOutTimeUTC = new Date(route.plan_out);
+        const planOutTime = convertToThailandTime(planOutTimeUTC);
+        console.log(`[CheckIn] Plan_out (UTC): ${planOutTimeUTC.toISOString()}`);
+        console.log(`[CheckIn] Plan_out (Thailand): ${planOutTime.toISOString()}`);
+        console.log(`[CheckIn] Check-in (Thailand): ${checkInTime.toISOString()}`);
+        console.log(`[CheckIn] Check-in time > Plan_out time: ${checkInTime > planOutTime}`);
+        console.log(`[CheckIn] Time difference (ms): ${checkInTime.getTime() - planOutTime.getTime()}`);
+        console.log(`[CheckIn] Time difference (minutes): ${(checkInTime.getTime() - planOutTime.getTime()) / (1000 * 60)}`);
+        
+        if (checkInTime > planOutTime) {
+          // แปลงกลับเป็น UTC สำหรับบันทึกลง database
+          const checkInTimeUTC = new Date(checkInTime.getTime() - (7 * 60 * 60 * 1000));
+          console.log(`[CheckIn] Updating actual_out with UTC time: ${checkInTimeUTC.toISOString()}`);
+          await pool.execute(
+            `UPDATE tb_job_route 
+             SET actual_out = ?, updated_by = ?, updated_date = NOW() 
+             WHERE id = ?`,
+            [checkInTimeUTC, req.user.username || userId.toString(), route.id]
+          );
+          console.log(`[CheckIn] ✅ Updated actual_out for route ${route.id}`);
+          updatedRoutes.push({ routeId: route.id, field: 'actual_out' });
+        } else {
+          console.log(`[CheckIn] ❌ Skipped actual_out - Check-in time is not greater than plan_out`);
+        }
+      } else {
+        if (route.actual_out !== null) {
+          console.log(`[CheckIn] ⚠️ Skipped actual_out - already has value: ${route.actual_out}`);
+        } else if (route.plan_out === null) {
+          console.log(`[CheckIn] ⚠️ Skipped actual_out - plan_out is null`);
+        } else if (route.actual_in === null) {
+          console.log(`[CheckIn] ⚠️ Skipped actual_out - actual_in is null (must have actual_in first)`);
+        }
+      }
+
+      // ตรวจสอบ actual_out2: ถ้าเวลาเช็คอินมากกว่า plan_out2 และมี actual_in2 แล้ว ให้ใส่เวลาเช็คอินที่ actual_out2
+      if (route.actual_out2 === null && 
+          route.plan_out2 !== null && 
+          (route.actual_in2 !== null || actualIn2Updated)) {
+        const planOut2TimeUTC = new Date(route.plan_out2);
+        const planOut2Time = convertToThailandTime(planOut2TimeUTC);
+        console.log(`[CheckIn] Checking actual_out2 - Plan_out2 (UTC): ${planOut2TimeUTC.toISOString()}, Plan_out2 (Thailand): ${planOut2Time.toISOString()}, Check-in (Thailand): ${checkInTime.toISOString()}, Is greater: ${checkInTime > planOut2Time}`);
+        if (checkInTime > planOut2Time) {
+          // แปลงกลับเป็น UTC สำหรับบันทึกลง database
+          const checkInTimeUTC = new Date(checkInTime.getTime() - (7 * 60 * 60 * 1000));
+          await pool.execute(
+            `UPDATE tb_job_route 
+             SET actual_out2 = ?, updated_by = ?, updated_date = NOW() 
+             WHERE id = ?`,
+            [checkInTimeUTC, req.user.username || userId.toString(), route.id]
+          );
+          console.log(`[CheckIn] ✅ Updated actual_out2 for route ${route.id}`);
+          updatedRoutes.push({ routeId: route.id, field: 'actual_out2' });
+        } else {
+          console.log(`[CheckIn] ❌ Skipped actual_out2 - Check-in time is not greater than plan_out2`);
+        }
+      } else if (route.actual_out2 === null && route.plan_out2 !== null) {
+        console.log(`[CheckIn] ⚠️ Skipped actual_out2 - actual_in2 is null`);
+      }
     }
 
-    // บันทึกการเช็คอินเข้างาน
-    const checkInTime = new Date();
+    console.log(`🔵 [CheckInJob] Finished checking routes. Updated ${updatedRoutes.length} route(s)`);
+
+    // บันทึกการเช็คอินเข้างาน (insert ทุกครั้ง ไม่มีการตรวจสอบ existing check-in)
+    // แปลงกลับเป็น UTC สำหรับบันทึกลง database
+    const checkInTimeUTC = new Date(checkInTime.getTime() - (7 * 60 * 60 * 1000));
+    console.log('🔵 [CheckInJob] Inserting check-in record...');
+    console.log(`🔵 [CheckInJob] Check-in time (Thailand): ${checkInTime.toISOString()}`);
+    console.log(`🔵 [CheckInJob] Check-in time (UTC for DB): ${checkInTimeUTC.toISOString()}`);
     const [result] = await pool.execute(
       `INSERT INTO tb_check_in_job 
        (user_id, check_in_time, user_lat, user_long, mileage, created_by, created_date)
        VALUES (?, ?, ?, ?, ?, ?, NOW())`,
       [
         userId,
-        checkInTime,
+        checkInTimeUTC,
         user_lat,
         user_long,
         mileage,
         req.user.username || userId.toString(),
       ]
     );
-
-    // ตรวจสอบและอัปเดต job routes ที่มี plan_in หลังเวลาเช็คอิน
-    // หา job routes ที่ driver_id = userId และ plan_in <= check_in_time
-    const [routes] = await pool.execute(
-      `SELECT jr.id, jr.job_id, jr.plan_in, jr.plan_out, jr.actual_in, jr.actual_out, jr.actual_in2, jr.actual_out2
-       FROM tb_job_route jr
-       INNER JOIN tb_job_master jm ON jr.job_id = jm.job_id
-       WHERE jm.driver_id = ?
-         AND jr.plan_in IS NOT NULL
-         AND jr.plan_in <= ?
-         AND (jr.actual_in IS NULL OR jr.actual_out IS NULL OR jr.actual_in2 IS NULL OR jr.actual_out2 IS NULL)
-       ORDER BY jr.plan_in ASC`,
-      [userId, checkInTime]
-    );
-
-    const updatedRoutes = [];
-    
-    for (const route of routes) {
-      // ตรวจสอบ actual_in
-      if (route.actual_in === null && route.plan_in <= checkInTime) {
-        await pool.execute(
-          `UPDATE tb_job_route 
-           SET actual_in = ?, updated_by = ?, updated_date = NOW() 
-           WHERE id = ?`,
-          [checkInTime, req.user.username || userId.toString(), route.id]
-        );
-        updatedRoutes.push({ routeId: route.id, field: 'actual_in' });
-      }
-
-      // ตรวจสอบ actual_in2
-      if (route.actual_in2 === null && route.plan_in <= checkInTime) {
-        await pool.execute(
-          `UPDATE tb_job_route 
-           SET actual_in2 = ?, updated_by = ?, updated_date = NOW() 
-           WHERE id = ?`,
-          [checkInTime, req.user.username || userId.toString(), route.id]
-        );
-        updatedRoutes.push({ routeId: route.id, field: 'actual_in2' });
-      }
-
-      // ตรวจสอบ actual_out (ต้องมี actual_in ก่อน)
-      if (route.plan_out !== null && 
-          route.plan_out <= checkInTime && 
-          route.actual_out === null && 
-          (route.actual_in !== null || route.actual_in2 !== null)) {
-        await pool.execute(
-          `UPDATE tb_job_route 
-           SET actual_out = ?, updated_by = ?, updated_date = NOW() 
-           WHERE id = ?`,
-          [checkInTime, req.user.username || userId.toString(), route.id]
-        );
-        updatedRoutes.push({ routeId: route.id, field: 'actual_out' });
-      }
-
-      // ตรวจสอบ actual_out2 (ต้องมี actual_in2 ก่อน)
-      if (route.plan_out !== null && 
-          route.plan_out <= checkInTime && 
-          route.actual_out2 === null && 
-          route.actual_in2 !== null) {
-        await pool.execute(
-          `UPDATE tb_job_route 
-           SET actual_out2 = ?, updated_by = ?, updated_date = NOW() 
-           WHERE id = ?`,
-          [checkInTime, req.user.username || userId.toString(), route.id]
-        );
-        updatedRoutes.push({ routeId: route.id, field: 'actual_out2' });
-      }
-    }
+    console.log(`🔵 [CheckInJob] ✅ Check-in record inserted with ID: ${result.insertId}`);
 
     res.json({
       success: true,
       message: 'เช็คอินเข้างานสำเร็จ',
       data: {
         id: result.insertId,
-        check_in_time: checkInTime,
+        check_in_time: checkInTime, // ส่งกลับเป็นเวลาไทย
         user_lat: user_lat,
         user_long: user_long,
         mileage: mileage,
@@ -137,7 +306,8 @@ const checkInJob = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Check in job error:', error);
+    console.error('🔴 [CheckInJob] ERROR:', error);
+    console.error('🔴 [CheckInJob] Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการเช็คอินเข้างาน',
@@ -194,8 +364,67 @@ const getLatestCheckInJob = async (req, res) => {
   }
 };
 
+// ดึงข้อมูลเช็คอินเข้างานตามวันที่
+const getCheckInJobsByDate = async (req, res) => {
+  try {
+    const userId = req.user.Id;
+    const { date } = req.query; // YYYY-MM-DD format
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุวันที่',
+      });
+    }
+
+    // แปลงวันที่เป็น UTC สำหรับ query
+    const dateObj = new Date(date + 'T00:00:00');
+    const dateUTC = new Date(dateObj.getTime() - (7 * 60 * 60 * 1000));
+    const dateStr = dateUTC.toISOString().split('T')[0];
+
+    const [checkIns] = await pool.execute(
+      `SELECT id, user_id, check_in_time, user_lat, user_long, mileage, created_date
+       FROM tb_check_in_job 
+       WHERE user_id = ? 
+       AND DATE(check_in_time) = ?
+       AND status = 1
+       ORDER BY check_in_time ASC`,
+      [userId, dateStr]
+    );
+
+    // แปลงเวลาเป็น UTC+7 (Thailand time)
+    const checkInsWithThailandTime = checkIns.map((checkIn) => {
+      const checkInTimeUTC = new Date(checkIn.check_in_time);
+      const checkInTimeTh = new Date(checkInTimeUTC.getTime() + (7 * 60 * 60 * 1000));
+      return {
+        id: checkIn.id,
+        userId: checkIn.user_id,
+        checkInTime: checkInTimeTh.toISOString(),
+        userLat: checkIn.user_lat ? parseFloat(checkIn.user_lat) : null,
+        userLong: checkIn.user_long ? parseFloat(checkIn.user_long) : null,
+        mileage: checkIn.mileage ? parseFloat(checkIn.mileage) : null,
+        createdDate: checkIn.created_date,
+      };
+    });
+
+    res.json({
+      success: true,
+      message: 'ดึงข้อมูลเช็คอินเข้างานสำเร็จ',
+      data: checkInsWithThailandTime,
+    });
+  } catch (error) {
+    console.error('Get check in jobs by date error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลเช็คอินเข้างาน',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
 module.exports = {
   checkInJob,
   getLatestCheckInJob,
+  getCheckInJobsByDate,
 };
 

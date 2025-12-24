@@ -17,21 +17,45 @@ const getJobOrders = async (req, res) => {
   try {
     const driverId = req.user.Id;
     
-    // ดึงวันที่ปัจจุบันใน timezone ประเทศไทย (UTC+7)
-    const now = new Date();
-    const thailandOffset = 7 * 60; // UTC+7 ในหน่วยนาที
-    const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-    const thailandTime = new Date(utcTime + (thailandOffset * 60000));
+    // ตรวจสอบว่ามี query parameter date หรือไม่
+    let targetDate;
+    let useExactDate = false;
     
-    // ตั้งเวลาเป็น 00:00:00 ของวันนี้ใน timezone ประเทศไทย
-    const today = new Date(thailandTime);
-    today.setHours(0, 0, 0, 0);
+    if (req.query.date) {
+      // ใช้วันที่ที่ส่งมาจาก client
+      const dateStr = req.query.date; // format: YYYY-MM-DD
+      const [year, month, day] = dateStr.split('-').map(Number);
+      targetDate = new Date(year, month - 1, day);
+      targetDate.setHours(0, 0, 0, 0);
+      useExactDate = true; // ใช้เฉพาะวันที่ที่ส่งมา ไม่ต้อง ±1 วัน
+      console.log(`[JobOrder] Using provided date: ${dateStr}`);
+    } else {
+      // ดึงวันที่ปัจจุบันใน timezone ประเทศไทย (UTC+7)
+      const now = new Date();
+      const thailandOffset = 7 * 60; // UTC+7 ในหน่วยนาที
+      const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const thailandTime = new Date(utcTime + (thailandOffset * 60000));
+      
+      // ตั้งเวลาเป็น 00:00:00 ของวันนี้ใน timezone ประเทศไทย
+      targetDate = new Date(thailandTime);
+      targetDate.setHours(0, 0, 0, 0);
+      useExactDate = false; // ใช้ ±1 วันสำหรับวันที่ปัจจุบัน
+      console.log(`[JobOrder] Using current date (Thailand timezone)`);
+    }
     
-    // คำนวณวันที่เริ่มต้น (วันนี้ - 1 วัน) และวันที่สิ้นสุด (วันนี้ + 1 วัน)
-    const startDate = new Date(today);
-    startDate.setDate(today.getDate() - 1);
-    const endDate = new Date(today);
-    endDate.setDate(today.getDate() + 1);
+    // คำนวณวันที่เริ่มต้นและสิ้นสุด
+    let startDate, endDate;
+    if (useExactDate) {
+      // ใช้เฉพาะวันที่ที่ส่งมา (ไม่ต้อง ±1 วัน)
+      startDate = new Date(targetDate);
+      endDate = new Date(targetDate);
+    } else {
+      // คำนวณวันที่เริ่มต้น (วันนี้ - 1 วัน) และวันที่สิ้นสุด (วันนี้ + 1 วัน)
+      startDate = new Date(targetDate);
+      startDate.setDate(targetDate.getDate() - 1);
+      endDate = new Date(targetDate);
+      endDate.setDate(targetDate.getDate() + 1);
+    }
     
     // แปลงเป็น string format YYYY-MM-DD
     const formatDate = (date) => {
@@ -43,16 +67,59 @@ const getJobOrders = async (req, res) => {
     
     const startDateStr = formatDate(startDate);
     const endDateStr = formatDate(endDate);
-    const todayStr = formatDate(today);
+    const targetDateStr = formatDate(targetDate);
 
-    console.log(`[JobOrder] Today (Thailand): ${todayStr}`);
-    console.log(`[JobOrder] Fetching job orders for driver_id: ${driverId}, date range: ${startDateStr} to ${endDateStr}`);
+    console.log(`[JobOrder] Target date: ${targetDateStr}`);
+    if (useExactDate) {
+      console.log(`[JobOrder] Fetching job orders for driver_id: ${driverId}, exact date: ${targetDateStr}`);
+    } else {
+      console.log(`[JobOrder] Fetching job orders for driver_id: ${driverId}, date range: ${startDateStr} to ${endDateStr}`);
+    }
 
-    // ดึง job orders ของ driver ในช่วง ±1 วันจากวันปัจจุบัน
+    // ดึง job orders ของ driver
     // ถ้า job_class = 0 ให้ค้นหาที่ tb_job_master.driver_id
     // ถ้า job_class = 1 ให้ค้นหาที่ tb_job_route.driver_id
     // กรองวันที่จาก tb_job_route.plan_in และ plan_in2
-    const queryString = `SELECT DISTINCT
+    let queryString, queryParams;
+    
+    if (useExactDate) {
+      // ใช้ = เมื่อเป็นวันที่เดียวกัน (แม่นยำกว่า)
+      queryString = `SELECT DISTINCT
+        jm.job_id,
+        jm.job_no,
+        jm.status,
+        jm.job_status,
+        jm.status_receive,
+        jm.driver_id,
+        jm.job_class,
+        jm.truck_tractor_id,
+        jm.truck_trailer_id,
+        jm.route_id,
+        jm.stamp_date,
+        tp.TRUCK_NUMBER AS truck_tractor_no,
+        tp2.TRUCK_NUMBER AS truck_trailer_no,
+        rm.route_name,
+        rm.route_no
+      FROM tb_job_master jm
+      LEFT JOIN tb_truck_profile tp ON jm.truck_tractor_id = tp.Id
+      LEFT JOIN tb_truck_profile tp2 ON jm.truck_trailer_id = tp2.Id
+      LEFT JOIN tb_route_master rm ON jm.route_id = rm.id
+      INNER JOIN tb_job_route jr ON jm.job_id = jr.job_id
+      WHERE (
+        (jm.job_class = 0 AND jm.driver_id = ?) OR
+        (jm.job_class = 1 AND jr.driver_id = ?)
+      )
+        AND (
+          (jr.plan_in IS NOT NULL AND DATE(jr.plan_in) = ?) OR
+          (jr.plan_in2 IS NOT NULL AND DATE(jr.plan_in2) = ?)
+        )
+        AND jm.status != 0
+      ORDER BY COALESCE(jr.plan_in, jr.plan_in2) DESC, jm.job_id DESC`;
+      
+      queryParams = [driverId, driverId, targetDateStr, targetDateStr];
+    } else {
+      // ใช้ BETWEEN เมื่อเป็นช่วงวันที่
+      queryString = `SELECT DISTINCT
         jm.job_id,
         jm.job_no,
         jm.status,
@@ -83,8 +150,9 @@ const getJobOrders = async (req, res) => {
         )
         AND jm.status != 0
       ORDER BY COALESCE(jr.plan_in, jr.plan_in2) DESC, jm.job_id DESC`;
-    
-    const queryParams = [driverId, driverId, startDateStr, endDateStr, startDateStr, endDateStr];
+      
+      queryParams = [driverId, driverId, startDateStr, endDateStr, startDateStr, endDateStr];
+    }
     
     console.log(`[JobOrder] Query: ${queryString}`);
     console.log(`[JobOrder] Parameters:`, queryParams);

@@ -48,11 +48,18 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
   bool _isLoading = true;
   String? _errorMessage;
   DateTime _selectedDate = DateTime.now();
+  List<DateTime> _checkInTimes = []; // เก็บเวลาเช็คอินจาก tb_check_in_job
+
+  // GlobalKeys สำหรับหาตำแหน่งจริงของ hour markers
+  final Map<int, GlobalKey> _hourMarkerKeys = {};
+  final GlobalKey _timelineColumnKey = GlobalKey();
+  final GlobalKey _timelineStackKey = GlobalKey();
+  double? _actualCurrentTimePosition;
 
   @override
   void initState() {
     super.initState();
-    _loadJobOrders();
+    _loadJobOrders(_selectedDate);
   }
 
   @override
@@ -61,22 +68,126 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
     super.dispose();
   }
 
-  Future<void> _loadJobOrders() async {
+  // ฟังก์ชันสำหรับคำนวณตำแหน่งจริงของเส้นสีแดง
+  void _calculateActualPosition(int currentHour, int currentMinute) {
+    final currentHourKey = _hourMarkerKeys[currentHour];
+    final nextHourKey = _hourMarkerKeys[currentHour + 1];
+
+    if (currentHourKey?.currentContext != null &&
+        _timelineStackKey.currentContext != null) {
+      final renderBox =
+          currentHourKey!.currentContext!.findRenderObject() as RenderBox?;
+      final stackRenderBox =
+          _timelineStackKey.currentContext!.findRenderObject() as RenderBox?;
+
+      if (renderBox != null && stackRenderBox != null) {
+        final position = renderBox.localToGlobal(Offset.zero);
+        final stackPosition = stackRenderBox.localToGlobal(Offset.zero);
+        // ลบด้วย padding top (8.0) ของ Padding ที่หุ้ม Stack
+        final relativeY = position.dy - stackPosition.dy - 8.0;
+
+        // หาความสูงของ hour marker จาก hour marker ถัดไป
+        double hourHeight = 26.0;
+        if (nextHourKey?.currentContext != null) {
+          final nextRenderBox =
+              nextHourKey!.currentContext!.findRenderObject() as RenderBox?;
+          if (nextRenderBox != null) {
+            final nextPosition = nextRenderBox.localToGlobal(Offset.zero);
+            hourHeight = (nextPosition.dy - position.dy).abs();
+          }
+        }
+
+        // คำนวณตำแหน่งของเส้นสีแดง (จุดกึ่งกลางของ circle + offset ตามนาที)
+        // Circle อยู่ที่จุดกึ่งกลางของ Row ซึ่งมีความสูง 18px ดังนั้นอยู่ที่ 9px จากด้านบน
+        final circleCenterOffset = 9.0;
+        final calculatedPosition = relativeY +
+            circleCenterOffset +
+            (currentMinute / 60.0) * hourHeight;
+
+        print('🔴 RED LINE CALCULATION (using actual positions):');
+        print(
+            '  Current time: ${currentHour.toString().padLeft(2, '0')}:${currentMinute.toString().padLeft(2, '0')}');
+        print('  Hour $currentHour marker actual position: $relativeY px');
+        print('  Circle center offset: $circleCenterOffset px');
+        print('  Hour height: $hourHeight px');
+        print(
+            '  Minute offset (${currentMinute}/60 * $hourHeight): ${(currentMinute / 60.0) * hourHeight} px');
+        print('  Total calculated position: $calculatedPosition px');
+
+        // อัปเดตตำแหน่งของเส้นสีแดงและ rebuild
+        if (mounted &&
+            (_actualCurrentTimePosition == null ||
+                _actualCurrentTimePosition != calculatedPosition)) {
+          setState(() {
+            _actualCurrentTimePosition = calculatedPosition;
+          });
+        }
+      } else {
+        print(
+            '⚠️ WARNING: RenderBox is null - cannot calculate actual position');
+      }
+    } else {
+      print(
+          '⚠️ WARNING: GlobalKey not ready - currentHourKey: ${currentHourKey?.currentContext != null}, timelineStackKey: ${_timelineStackKey.currentContext != null}');
+    }
+  }
+
+  Future<void> _loadJobOrders(DateTime date) async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
-    final result = await _jobOrderService.getJobOrders();
+    // โหลดข้อมูล job orders และ check-in times พร้อมกัน
+    final jobOrdersResult = await _jobOrderService.getJobOrders(date: date);
+    await _loadCheckInTimes(date);
 
     if (mounted) {
       setState(() {
         _isLoading = false;
-        if (result['success'] == true) {
-          _summary = result['summary'] as JobOrderSummary;
-          _jobs = result['jobs'] as List<JobOrder>;
+        if (jobOrdersResult['success'] == true) {
+          // กรองข้อมูลตามวันที่ที่เลือก
+          final allJobs = jobOrdersResult['jobs'] as List<JobOrder>;
+          final selectedDateStart = DateTime(date.year, date.month, date.day);
+
+          // กรอง jobs ที่มี routes ในวันที่ที่เลือก
+          final filteredJobs = allJobs.where((job) {
+            return job.routes.any((route) {
+              if (route.planIn != null) {
+                final routeDate = DateTime(
+                  route.planIn!.year,
+                  route.planIn!.month,
+                  route.planIn!.day,
+                );
+                if (routeDate.isAtSameMomentAs(selectedDateStart)) {
+                  return true;
+                }
+              }
+              if (route.planIn2 != null) {
+                final routeDate = DateTime(
+                  route.planIn2!.year,
+                  route.planIn2!.month,
+                  route.planIn2!.day,
+                );
+                if (routeDate.isAtSameMomentAs(selectedDateStart)) {
+                  return true;
+                }
+              }
+              return false;
+            });
+          }).toList();
+
+          _jobs = filteredJobs;
+
+          // คำนวณ summary ใหม่ตามข้อมูลที่กรองแล้ว
+          _summary = JobOrderSummary(
+            total: filteredJobs.length,
+            completed: filteredJobs.where((j) => j.isCompleted).length,
+            accepted: filteredJobs.where((j) => j.isAccepted).length,
+            pending: filteredJobs.where((j) => j.isPending).length,
+          );
         } else {
-          _errorMessage = result['message'] as String?;
+          _errorMessage = jobOrdersResult['message'] as String?;
         }
       });
 
@@ -84,6 +195,26 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToCurrentTime();
       });
+    }
+  }
+
+  Future<void> _loadCheckInTimes(DateTime date) async {
+    try {
+      final dateStr =
+          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      final response = await _checkInService.getCheckInJobsByDate(dateStr);
+
+      if (mounted && response['success'] == true) {
+        final checkIns = response['data'] as List<dynamic>;
+        setState(() {
+          _checkInTimes = checkIns.map((checkIn) {
+            return DateTime.parse(checkIn['checkInTime']);
+          }).toList();
+        });
+      }
+    } catch (e) {
+      print('Error loading check-in times: $e');
+      // ไม่แสดง error เพราะไม่ใช่ข้อมูลหลัก
     }
   }
 
@@ -239,6 +370,9 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
         Navigator.of(context).pop(); // ปิด loading dialog
 
         if (result['success'] == true) {
+          // Refresh ข้อมูล check-in times
+          await _loadCheckInTimes(_selectedDate);
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result['message'] ?? 'เช็คอินเข้างานสำเร็จ'),
@@ -353,7 +487,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
           ),
         );
         // Reload job orders
-        _loadJobOrders();
+        _loadJobOrders(_selectedDate);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -437,94 +571,100 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.error_outline,
-                          size: 64, color: Colors.red[300]),
-                      const SizedBox(height: 16),
-                      Text(
-                        _errorMessage!,
-                        style: TextStyle(color: Colors.red[700]),
-                        textAlign: TextAlign.center,
+      body: CustomScrollView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          // Header Section (Sticky) - แสดงตลอดเวลา
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _StickyHeaderDelegate(
+              minHeight: 200,
+              maxHeight: 200,
+              child: Container(
+                color: Colors.white,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Statistics Row
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildStatItem(
+                            '${_summary?.total ?? 0}',
+                            'ทั้งหมด',
+                          ),
+                          _buildStatItem(
+                            '${_summary?.completed ?? 0}',
+                            'จบงาน',
+                          ),
+                          _buildStatItem(
+                            '${_summary?.accepted ?? 0}',
+                            'รับงาน',
+                          ),
+                          _buildStatItem(
+                            '${_summary?.pending ?? 0}',
+                            'รอรับงาน',
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _loadJobOrders,
-                        child: const Text('ลองใหม่'),
-                      ),
-                    ],
-                  ),
-                )
-              : CustomScrollView(
-                  controller: _scrollController,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    // Header Section (Sticky)
-                    SliverPersistentHeader(
-                      pinned: true,
-                      delegate: _StickyHeaderDelegate(
-                        minHeight: 200,
-                        maxHeight: 200,
+                    ),
+                    // Date Picker
+                    _buildDatePicker(),
+                    // Divider
+                    Container(
+                      height: 1,
+                      color: Colors.grey[300],
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Job Timeline (Scrollable) - แสดง loading หรือ error เฉพาะส่วนนี้
+          SliverPadding(
+            padding: const EdgeInsets.only(top: 8),
+            sliver: _isLoading
+                ? SliverToBoxAdapter(
+                    child: Container(
+                      height: 400,
+                      alignment: Alignment.center,
+                      child: const CircularProgressIndicator(),
+                    ),
+                  )
+                : _errorMessage != null
+                    ? SliverToBoxAdapter(
                         child: Container(
-                          color: Colors.white,
+                          padding: const EdgeInsets.all(32),
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              // Statistics Row
-                              Container(
-                                padding:
-                                    const EdgeInsets.fromLTRB(16, 24, 16, 12),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceAround,
-                                  children: [
-                                    _buildStatItem(
-                                      '${_summary?.total ?? 0}',
-                                      'ทั้งหมด',
-                                    ),
-                                    _buildStatItem(
-                                      '${_summary?.completed ?? 0}',
-                                      'จบงาน',
-                                    ),
-                                    _buildStatItem(
-                                      '${_summary?.accepted ?? 0}',
-                                      'รับงาน',
-                                    ),
-                                    _buildStatItem(
-                                      '${_summary?.pending ?? 0}',
-                                      'รอรับงาน',
-                                    ),
-                                  ],
-                                ),
+                              Icon(Icons.error_outline,
+                                  size: 64, color: Colors.red[300]),
+                              const SizedBox(height: 16),
+                              Text(
+                                _errorMessage!,
+                                style: TextStyle(color: Colors.red[700]),
+                                textAlign: TextAlign.center,
                               ),
-                              // Date Picker
-                              _buildDatePicker(),
-                              // Divider
-                              Container(
-                                height: 1,
-                                color: Colors.grey[300],
-                                margin:
-                                    const EdgeInsets.symmetric(horizontal: 16),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: () => _loadJobOrders(_selectedDate),
+                                child: const Text('ลองใหม่'),
                               ),
                             ],
                           ),
                         ),
-                      ),
-                    ),
-                    // Job Timeline (Scrollable)
-                    SliverPadding(
-                      padding: const EdgeInsets.only(top: 8),
-                      sliver: SliverToBoxAdapter(
+                      )
+                    : SliverToBoxAdapter(
                         child: _buildTimeline(),
                       ),
-                    ),
-                  ],
-                ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -576,6 +716,8 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                 setState(() {
                   _selectedDate = date;
                 });
+                // โหลด API ใหม่ตามวันที่ที่เลือก
+                _loadJobOrders(date);
               },
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -682,32 +824,33 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
     final todayStart = DateTime(now.year, now.month, now.day);
     final isToday = selectedDateStart.isAtSameMomentAs(todayStart);
 
-    // คำนวณตำแหน่งของเวลาปัจจุบัน
-    // hour marker มี: Text (fontSize 16, ~22px) + Padding bottom (8px) + Circle (24px) = ~54px
-    // แต่ละชั่วโมงรวม spacing ประมาณ 60-70px
-    // ใช้ 70px ต่อชั่วโมงเพื่อความแม่นยำ
+    // คำนวณตำแหน่งของเวลาปัจจุบันโดยใช้ตำแหน่งจริงของ hour markers
     double? currentTimePosition;
     if (isToday) {
       final currentHour = now.hour;
       final currentMinute = now.minute;
-      // คำนวณตำแหน่ง: (ชั่วโมง * 70) + (นาที / 60 * 70)
-      // แต่ละชั่วโมง = 70 pixels (hour marker + spacing)
-      currentTimePosition = currentHour * 70.0 + (currentMinute / 60.0) * 70.0;
 
-      // Debug: print เพื่อตรวจสอบ
-      print(
-          '🔴 RED LINE DEBUG: isToday=$isToday, currentTimePosition=$currentTimePosition, hour=$currentHour, minute=$currentMinute, selectedDate=${_selectedDate.toString().substring(0, 10)}, todayStart=${todayStart.toString().substring(0, 10)}');
-    } else {
-      print(
-          '🔴 RED LINE DEBUG: isToday=$isToday, selectedDate=${_selectedDate.toString().substring(0, 10)}, todayStart=${todayStart.toString().substring(0, 10)}');
+      // หาตำแหน่งจริงของ hour marker ปัจจุบันและ hour marker ถัดไป
+      // ใช้ addPostFrameCallback เพื่อให้แน่ใจว่า widgets render เสร็จแล้ว
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _calculateActualPosition(currentHour, currentMinute);
+      });
+
+      // ลองหาตำแหน่งจริงทันที (ถ้า GlobalKey พร้อมแล้ว)
+      _calculateActualPosition(currentHour, currentMinute);
+
+      // ใช้ค่าจริงถ้ามี หรือใช้ค่าประมาณก่อน
+      currentTimePosition = _actualCurrentTimePosition ??
+          ((currentHour * 26.0) + 9.0 + (currentMinute / 60.0) * 26.0);
     }
 
     // สร้าง children สำหรับ Stack
     final stackChildren = <Widget>[
-      // เส้นแนวตั้ง (แสดงเสมอ) - ปรับตำแหน่งให้ตรงกับวงกลม (80 + 8 + 12 = 100)
+      // เส้นแนวตั้ง (แสดงเสมอ) - ปรับตำแหน่งให้ตรงกับวงกลม
+      // ตำแหน่ง: 80 (time width) + 8 (spacing) + 9 (half of circle 18/2) - 1 (half of line width 2/2) = 96
       Positioned(
         left:
-            99, // 80 (time width) + 8 (spacing) + 12 (half of circle 24/2) - 1 (half of line width 2/2)
+            96, // จุดกึ่งกลางของเส้น (96 + 1 = 97) = จุดกึ่งกลางของวงกลม (88 + 9 = 97)
         top: 0,
         bottom: 0,
         child: Container(
@@ -716,96 +859,93 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
         ),
       ),
       // Timeline items (24 hours + jobs)
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // แสดง 24 ชั่วโมง
-          ...hours.map((hour) {
-            // หางานที่ตรงกับชั่วโมงนี้
-            final itemsForThisHour = timelineItems.where((item) {
-              return item.time.hour == hour &&
-                  item.time.year == _selectedDate.year &&
-                  item.time.month == _selectedDate.month &&
-                  item.time.day == _selectedDate.day;
-            }).toList();
+      ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: 24 *
+              26.0, // ความสูงขั้นต่ำสำหรับ 24 ชั่วโมง (แต่ละชั่วโมง 26px: 18px circle + 8px padding)
+        ),
+        child: Column(
+          key: _timelineColumnKey,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // แสดง 24 ชั่วโมง
+            ...hours.map((hour) {
+              // หางานที่ตรงกับชั่วโมงนี้
+              final itemsForThisHour = timelineItems.where((item) {
+                return item.time.hour == hour &&
+                    item.time.year == _selectedDate.year &&
+                    item.time.month == _selectedDate.month &&
+                    item.time.day == _selectedDate.day;
+              }).toList();
 
-            // จัดกลุ่ม items ตามเวลา (ชั่วโมงและนาที)
-            final groupedItems = <String, List<TimelineItem>>{};
-            for (var item in itemsForThisHour) {
-              final timeKey =
-                  '${item.time.hour.toString().padLeft(2, '0')}:${item.time.minute.toString().padLeft(2, '0')}';
-              if (!groupedItems.containsKey(timeKey)) {
-                groupedItems[timeKey] = [];
+              // จัดกลุ่ม items ตามเวลา (ชั่วโมงและนาที)
+              final groupedItems = <String, List<TimelineItem>>{};
+              for (var item in itemsForThisHour) {
+                final timeKey =
+                    '${item.time.hour.toString().padLeft(2, '0')}:${item.time.minute.toString().padLeft(2, '0')}';
+                if (!groupedItems.containsKey(timeKey)) {
+                  groupedItems[timeKey] = [];
+                }
+                groupedItems[timeKey]!.add(item);
               }
-              groupedItems[timeKey]!.add(item);
-            }
 
-            return Column(
-              children: [
-                // Hour marker
-                _buildHourMarker(hour),
-                // Jobs for this hour - จัดกลุ่มตามเวลา
-                if (itemsForThisHour.isNotEmpty)
-                  ...groupedItems.entries.expand((group) {
-                    final itemsAtSameTime = group.value;
-                    final isLastGroup =
-                        group == groupedItems.entries.last && hour == 23;
+              return Column(
+                children: [
+                  // Hour marker
+                  _buildHourMarker(hour),
+                  // Jobs for this hour - จัดกลุ่มตามเวลา
+                  if (itemsForThisHour.isNotEmpty)
+                    ...groupedItems.entries.expand((group) {
+                      final itemsAtSameTime = group.value;
+                      final isLastGroup =
+                          group == groupedItems.entries.last && hour == 23;
 
-                    // ถ้ามีมากกว่า 1 item ที่เวลาเท่ากัน ให้แสดงเป็น 2 column
-                    if (itemsAtSameTime.length > 1) {
-                      return [
-                        _buildTimelineItemsRow(
-                          itemsAtSameTime,
-                          isLastGroup,
-                          hour < 23,
-                        ),
-                      ];
-                    } else {
-                      // ถ้ามีแค่ 1 item ให้แสดงแบบเดิม
-                      final item = itemsAtSameTime[0];
-                      return [
-                        _buildTimelineItem(
-                          item,
-                          isLastGroup,
-                          hour < 23,
-                          true,
-                        ),
-                      ];
-                    }
-                  }),
-                // Empty space if no jobs and last hour
-                if (itemsForThisHour.isEmpty && hour == 23)
-                  const SizedBox(height: 16),
-              ],
-            );
-          }),
-          // แสดงข้อความถ้าไม่มีงาน
-          if (timelineItems.isEmpty)
-            Padding(
-              padding:
-                  const EdgeInsets.only(left: 80.0, top: 32.0, bottom: 32.0),
-              child: Text(
-                'ไม่มีงานในวันนี้',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ),
-        ],
+                      // ถ้ามีมากกว่า 1 item ที่เวลาเท่ากัน ให้แสดงเป็น 2 column
+                      if (itemsAtSameTime.length > 1) {
+                        return [
+                          _buildTimelineItemsRow(
+                            itemsAtSameTime,
+                            isLastGroup,
+                            hour < 23,
+                          ),
+                        ];
+                      } else {
+                        // ถ้ามีแค่ 1 item ให้แสดงแบบเดิม
+                        final item = itemsAtSameTime[0];
+                        return [
+                          _buildTimelineItem(
+                            item,
+                            isLastGroup,
+                            hour < 23,
+                            true,
+                          ),
+                        ];
+                      }
+                    }),
+                  // Empty space if no jobs and last hour
+                  if (itemsForThisHour.isEmpty && hour == 23)
+                    const SizedBox(height: 16),
+                ],
+              );
+            }),
+          ],
+        ),
       ),
     ];
 
     // เพิ่มเส้นบอกเวลาปัจจุบัน (สีแดง) - อยู่ layer บนสุด (ต้องอยู่ท้ายสุดของ Stack)
     // **หมายเหตุ: เส้นสีแดงนี้แยกจากปุ่มเช็คอินสีแดง (FloatingActionButton) ที่ด้านล่าง**
     if (isToday && currentTimePosition != null) {
+      print('🔴 RED LINE: Adding red line to stack');
+      print('  Position (top): $currentTimePosition px');
       print(
-          '🔴 RED LINE: Adding red line to stack at position $currentTimePosition');
+          '  This should align with hour ${now.hour} marker at ${(now.hour * 26.0) + 9.0} px');
       stackChildren.add(
         Positioned(
           left: 0,
           right: 0,
-          top: currentTimePosition - 1, // ตำแหน่งเวลาปัจจุบัน
+          top:
+              currentTimePosition, // ตำแหน่งเวลาปัจจุบัน (ไม่ต้องลบ 1 เพราะ circle center อยู่ที่ 9px จากด้านบนของ hour marker)
           child: IgnorePointer(
             child: SizedBox(
               height: 30, // กำหนดความสูงให้แน่นอน
@@ -813,11 +953,11 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                 clipBehavior: Clip.none,
                 children: [
                   // วงกลมสีแดงที่เส้นแนวตั้ง
+                  // ตำแหน่ง: 96 (center of vertical line) - 9 (half of 18px circle) = 87
                   Positioned(
-                    left:
-                        99 - 9, // 99 (center of line) - 9 (half of 18px circle)
+                    left: 96 - 9, // 87px
                     top:
-                        -9, // -9 (half of 18px circle) เพื่อให้จุดอยู่ตรงกลางเส้น
+                        0, // จุดกึ่งกลางของ circle อยู่ที่ 9px จากด้านบน (18px / 2)
                     child: Container(
                       width: 18,
                       height: 18,
@@ -832,10 +972,13 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                     ),
                   ),
                   // เส้นแนวนอนสีแดง (เริ่มจากจุดแดง)
+                  // ตำแหน่ง: 96 (center of vertical line) + 9 (half of 18px circle) = 105 (ขอบขวาของ circle)
+                  // top: 9 - 1 = 8 (จุดกึ่งกลางของ circle - half of line height)
                   Positioned(
-                    left: 99 + 9, // เริ่มจากขอบขวาของจุดแดง (99 + 9)
+                    left: 96 + 9, // 105px (ขอบขวาของ circle)
                     right: 0,
-                    top: -1, // -1 เพื่อให้เส้นอยู่ตรงกลาง (height 2 / 2 = 1)
+                    top:
+                        8, // จุดกึ่งกลางของ circle (9px) - half of line height (1px) = 8px
                     child: Container(
                       height: 2,
                       color: Colors.red,
@@ -876,6 +1019,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
       child: Stack(
+        key: _timelineStackKey,
         clipBehavior: Clip.none, // อนุญาตให้ widget อยู่นอกขอบเขต
         children: stackChildren,
       ),
@@ -885,26 +1029,62 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
   Widget _buildHourMarker(int hour) {
     final hourStr = '${hour.toString().padLeft(2, '0')}:00';
 
+    // สร้าง GlobalKey สำหรับ hour marker นี้ถ้ายังไม่มี
+    if (!_hourMarkerKeys.containsKey(hour)) {
+      _hourMarkerKeys[hour] = GlobalKey();
+    }
+
+    // หาเวลาเช็คอินที่อยู่ในชั่วโมงนี้
+    final checkInTimesForThisHour = _checkInTimes.where((checkInTime) {
+      return checkInTime.hour == hour &&
+          checkInTime.year == _selectedDate.year &&
+          checkInTime.month == _selectedDate.month &&
+          checkInTime.day == _selectedDate.day;
+    }).toList();
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
       child: Row(
+        key: _hourMarkerKeys[hour],
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           SizedBox(
             width: 80,
-            child: Text(
-              hourStr,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[700],
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hourStr,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[700],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                // แสดงเวลาเช็คอิน
+                if (checkInTimesForThisHour.isNotEmpty)
+                  ...checkInTimesForThisHour.map((checkInTime) {
+                    final timeStr =
+                        '${checkInTime.hour.toString().padLeft(2, '0')}:${checkInTime.minute.toString().padLeft(2, '0')}';
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 2.0),
+                      child: Text(
+                        '✓ $timeStr',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+              ],
             ),
           ),
           const SizedBox(width: 8),
           Container(
-            width: 24,
-            height: 24,
+            width: 18,
+            height: 18,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Colors.white,
@@ -930,46 +1110,34 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
           child: const SizedBox.shrink(),
         ),
         const SizedBox(width: 8),
-        // Timeline dot and line
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: items.any((item) => item.isActive)
+        // Timeline dot - ใช้เส้นแนวตั้งหลัก ไม่ต้องมีเส้นเชื่อมต่อ
+        Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: items.any((item) => item.isActive)
+                ? Colors.teal
+                : items.every((item) => item.isCompleted)
                     ? Colors.teal
-                    : items.every((item) => item.isCompleted)
-                        ? Colors.teal
-                        : Colors.white,
-                border: Border.all(
-                  color: items.any((item) => item.isActive) ||
-                          items.every((item) => item.isCompleted)
-                      ? Colors.teal
-                      : Colors.grey[400]!,
-                  width: 2,
-                ),
-              ),
-              child: items.every((item) => item.isCompleted)
-                  ? const Icon(
-                      Icons.check,
-                      size: 14,
-                      color: Colors.white,
-                    )
-                  : null,
+                    : Colors.white,
+            border: Border.all(
+              color: items.any((item) => item.isActive) ||
+                      items.every((item) => item.isCompleted)
+                  ? Colors.teal
+                  : Colors.grey[400]!,
+              width: 2,
             ),
-            if (!isLast && showLineAfter)
-              Container(
-                width: 2,
-                height: 80,
-                color: Colors.grey[300],
-                margin: const EdgeInsets.only(top: 4),
-              ),
-          ],
+          ),
+          child: items.every((item) => item.isCompleted)
+              ? const Icon(
+                  Icons.check,
+                  size: 12,
+                  color: Colors.white,
+                )
+              : null,
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 20),
         // Event cards - แสดงเป็น 2 column
         Expanded(
           child: Row(
@@ -1117,10 +1285,55 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                 ),
               ],
             ),
+            // แสดง actual_in และ actual_out ถ้ามีข้อมูล
+            if (item.route?.actualIn != null ||
+                item.route?.actualOut != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(
+                    Icons.check_circle,
+                    size: 14,
+                    color: Colors.green[600],
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      _formatActualTime(item.route),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  String _formatActualTime(JobRoute? route) {
+    if (route == null) return '';
+
+    final actualInStr = route.actualIn != null
+        ? '${route.actualIn!.hour.toString().padLeft(2, '0')}:${route.actualIn!.minute.toString().padLeft(2, '0')}'
+        : null;
+    final actualOutStr = route.actualOut != null
+        ? '${route.actualOut!.hour.toString().padLeft(2, '0')}:${route.actualOut!.minute.toString().padLeft(2, '0')}'
+        : null;
+
+    if (actualInStr != null && actualOutStr != null) {
+      return 'เข้า: $actualInStr ออก: $actualOutStr';
+    } else if (actualInStr != null) {
+      return 'เข้า: $actualInStr';
+    } else if (actualOutStr != null) {
+      return 'ออก: $actualOutStr';
+    }
+    return '';
   }
 
   Widget _buildTimelineItem(
@@ -1139,45 +1352,33 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
           child: const SizedBox.shrink(),
         ),
         const SizedBox(width: 8),
-        // Timeline dot and line
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: item.isActive
+        // Timeline dot - ใช้เส้นแนวตั้งหลัก ไม่ต้องมีเส้นเชื่อมต่อ
+        Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: item.isActive
+                ? Colors.teal
+                : item.isCompleted
                     ? Colors.teal
-                    : item.isCompleted
-                        ? Colors.teal
-                        : Colors.white,
-                border: Border.all(
-                  color: item.isActive || item.isCompleted
-                      ? Colors.teal
-                      : Colors.grey[400]!,
-                  width: 2,
-                ),
-              ),
-              child: item.isCompleted
-                  ? const Icon(
-                      Icons.check,
-                      size: 14,
-                      color: Colors.white,
-                    )
-                  : null,
+                    : Colors.white,
+            border: Border.all(
+              color: item.isActive || item.isCompleted
+                  ? Colors.teal
+                  : Colors.grey[400]!,
+              width: 2,
             ),
-            if (!isLast || showLineAfter)
-              Container(
-                width: 2,
-                height: 80,
-                color: Colors.grey[300],
-                margin: const EdgeInsets.only(top: 4),
-              ),
-          ],
+          ),
+          child: item.isCompleted
+              ? const Icon(
+                  Icons.check,
+                  size: 12,
+                  color: Colors.white,
+                )
+              : null,
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 20),
         // Event card
         Expanded(
           child: GestureDetector(
@@ -1304,6 +1505,31 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                       ),
                     ],
                   ),
+                  // แสดง actual_in และ actual_out ถ้ามีข้อมูล
+                  if (item.route?.actualIn != null ||
+                      item.route?.actualOut != null) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          size: 14,
+                          color: Colors.green[600],
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            _formatActualTime(item.route),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   // Action button
                   if (item.job.isPending && item.isJob) ...[
                     const SizedBox(height: 8),

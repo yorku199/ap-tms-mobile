@@ -209,5 +209,34 @@ class CheckInService {
       throw Exception('เกิดข้อผิดพลาด: ${e.toString()}');
     }
   }
+
+  // ดึงข้อมูลเช็คอินเข้างานตามวันที่
+  Future<Map<String, dynamic>> getCheckInJobsByDate(String date) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/check-in-job/by-date').replace(queryParameters: {'date': date}),
+        headers: await _getHeaders(),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return {
+          'success': true,
+          'data': data['data'],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'ไม่สามารถดึงข้อมูลเช็คอินเข้างานได้',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'เกิดข้อผิดพลาด: ${e.toString()}',
+      };
+    }
+  }
 }
 
