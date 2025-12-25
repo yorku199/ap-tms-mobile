@@ -47,20 +47,24 @@ const checkInJob = async (req, res) => {
     const now = new Date();
     const checkInTime = convertToThailandTime(now);
     
-    // คำนวณวันที่จากเวลาไทย
-    const checkInDate = new Date(checkInTime);
-    checkInDate.setHours(0, 0, 0, 0);
-    // แปลงกลับเป็น UTC สำหรับใช้ใน SQL query (เพราะ database เก็บเป็น UTC)
-    const checkInDateUTC = new Date(checkInDate.getTime() - (7 * 60 * 60 * 1000));
+    // คำนวณวันที่จากเวลาไทย (ใช้ UTC date โดยตรงจาก now เพื่อความถูกต้อง)
+    const checkInDateUTC = new Date(now);
+    checkInDateUTC.setUTCHours(0, 0, 0, 0);
     const checkInDateStr = checkInDateUTC.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    // คำนวณวันที่จากเวลาไทยสำหรับแสดงผล
+    const checkInDateTh = new Date(checkInTime);
+    checkInDateTh.setHours(0, 0, 0, 0);
     
     console.log(`🔵 [CheckInJob] Checking routes for actual_in/actual_out updates...`);
     console.log(`[CheckIn] UTC time: ${now.toISOString()}`);
     console.log(`[CheckIn] Thailand time: ${checkInTime.toISOString()}`);
-    console.log(`[CheckIn] Thailand date: ${checkInDate.toISOString().split('T')[0]}`);
+    console.log(`[CheckIn] Thailand date: ${checkInDateTh.toISOString().split('T')[0]}`);
+    console.log(`[CheckIn] UTC date for query: ${checkInDateStr}`);
     console.log(`[CheckIn] Searching routes for driver_id: ${userId}, date: ${checkInDateStr} (UTC)`);
     console.log(`[CheckIn] Check-in time (Thailand): ${checkInTime.toISOString()}`);
     
+    // Query routes ทั้งหมดของวันนั้น (ไม่ filter actual_in/actual_out เพื่อให้สามารถอัปเดตได้ทุกครั้ง)
     const [routes] = await pool.execute(
       `SELECT jr.id, jr.job_id, jr.plan_in, jr.plan_out, jr.plan_in2, jr.plan_out2, 
               jr.actual_in, jr.actual_out, jr.actual_in2, jr.actual_out2
@@ -68,16 +72,38 @@ const checkInJob = async (req, res) => {
        INNER JOIN tb_job_master jm ON jr.job_id = jm.job_id
        WHERE jm.driver_id = ?
          AND (
-           (jr.plan_in IS NOT NULL AND DATE(jr.plan_in) = ? AND jr.actual_in IS NULL) OR
-           (jr.plan_in2 IS NOT NULL AND DATE(jr.plan_in2) = ? AND jr.actual_in2 IS NULL) OR
-           (jr.plan_out IS NOT NULL AND DATE(jr.plan_out) = ? AND jr.actual_out IS NULL) OR
-           (jr.plan_out2 IS NOT NULL AND DATE(jr.plan_out2) = ? AND jr.actual_out2 IS NULL)
+           (jr.plan_in IS NOT NULL AND DATE(jr.plan_in) = ?) OR
+           (jr.plan_in2 IS NOT NULL AND DATE(jr.plan_in2) = ?) OR
+           (jr.plan_out IS NOT NULL AND DATE(jr.plan_out) = ?) OR
+           (jr.plan_out2 IS NOT NULL AND DATE(jr.plan_out2) = ?)
          )
        ORDER BY COALESCE(jr.plan_in, jr.plan_in2) ASC`,
       [userId, checkInDateStr, checkInDateStr, checkInDateStr, checkInDateStr]
     );
 
-    console.log(`[CheckIn] Found ${routes.length} route(s) to check`);
+    console.log(`[CheckIn] Found ${routes.length} route(s) to check for date ${checkInDateStr} (UTC)`);
+    if (routes.length === 0) {
+      console.log(`[CheckIn] ⚠️ No routes found for driver ${userId} on date ${checkInDateStr}`);
+      // Debug: ตรวจสอบว่ามี routes สำหรับ driver นี้หรือไม่
+      const [allRoutes] = await pool.execute(
+        `SELECT jr.id, jr.job_id, DATE(jr.plan_in) as plan_in_date, DATE(jr.plan_out) as plan_out_date
+         FROM tb_job_route jr
+         INNER JOIN tb_job_master jm ON jr.job_id = jm.job_id
+         WHERE jm.driver_id = ?
+         ORDER BY jr.plan_in DESC
+         LIMIT 5`,
+        [userId]
+      );
+      console.log(`[CheckIn] Debug: Found ${allRoutes.length} total route(s) for driver ${userId}`);
+      if (allRoutes.length > 0) {
+        console.log(`[CheckIn] Debug: Recent routes:`, allRoutes.map(r => ({
+          id: r.id,
+          job_id: r.job_id,
+          plan_in_date: r.plan_in_date,
+          plan_out_date: r.plan_out_date
+        })));
+      }
+    }
     
     const updatedRoutes = [];
     
@@ -370,6 +396,10 @@ const getCheckInJobsByDate = async (req, res) => {
     const userId = req.user.Id;
     const { date } = req.query; // YYYY-MM-DD format
 
+    console.log('📅 [CheckInJob] getCheckInJobsByDate - Request received');
+    console.log('📅 [CheckInJob] User ID:', userId);
+    console.log('📅 [CheckInJob] Date query:', date);
+
     if (!date) {
       return res.status(400).json({
         success: false,
@@ -379,8 +409,8 @@ const getCheckInJobsByDate = async (req, res) => {
 
     // แปลงวันที่เป็น UTC สำหรับ query
     const dateObj = new Date(date + 'T00:00:00');
-    const dateUTC = new Date(dateObj.getTime() - (7 * 60 * 60 * 1000));
-    const dateStr = dateUTC.toISOString().split('T')[0];
+
+    console.log('📅 [CheckInJob] Original date:', date);
 
     const [checkIns] = await pool.execute(
       `SELECT id, user_id, check_in_time, user_lat, user_long, mileage, created_date
@@ -389,13 +419,16 @@ const getCheckInJobsByDate = async (req, res) => {
        AND DATE(check_in_time) = ?
        AND status = 1
        ORDER BY check_in_time ASC`,
-      [userId, dateStr]
+      [userId, date]
     );
+
+    console.log(`📅 [CheckInJob] Found ${checkIns.length} check-in(s) in database`);
 
     // แปลงเวลาเป็น UTC+7 (Thailand time)
     const checkInsWithThailandTime = checkIns.map((checkIn) => {
       const checkInTimeUTC = new Date(checkIn.check_in_time);
       const checkInTimeTh = new Date(checkInTimeUTC.getTime() + (7 * 60 * 60 * 1000));
+      console.log('📅 [CheckInJob] Check-in ID:', checkIn.id, 'UTC:', checkInTimeUTC.toISOString(), 'Thailand:', checkInTimeTh.toISOString());
       return {
         id: checkIn.id,
         userId: checkIn.user_id,
@@ -407,13 +440,15 @@ const getCheckInJobsByDate = async (req, res) => {
       };
     });
 
+    console.log(`📅 [CheckInJob] Returning ${checkInsWithThailandTime.length} check-in(s)`);
+
     res.json({
       success: true,
       message: 'ดึงข้อมูลเช็คอินเข้างานสำเร็จ',
       data: checkInsWithThailandTime,
     });
   } catch (error) {
-    console.error('Get check in jobs by date error:', error);
+    console.error('❌ [CheckInJob] Get check in jobs by date error:', error);
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการดึงข้อมูลเช็คอินเข้างาน',

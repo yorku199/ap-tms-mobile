@@ -95,6 +95,8 @@ class JobRoute {
   final DateTime? actualOut2;
   final String? locationName2;
   final String? locationCode2;
+  final String? checkInStatus;
+  final String? checkOutStatus;
 
   JobRoute({
     required this.id,
@@ -115,6 +117,8 @@ class JobRoute {
     this.actualOut2,
     this.locationName2,
     this.locationCode2,
+    this.checkInStatus,
+    this.checkOutStatus,
   });
 
   factory JobRoute.fromJson(Map<String, dynamic> json) {
@@ -153,6 +157,8 @@ class JobRoute {
           : null,
       locationName2: json['location_name2'] as String?,
       locationCode2: json['location_code2'] as String?,
+      checkInStatus: json['check_in_status'] as String?,
+      checkOutStatus: json['check_out_status'] as String?,
     );
   }
 }

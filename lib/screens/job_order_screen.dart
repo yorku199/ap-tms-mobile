@@ -49,6 +49,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
   String? _errorMessage;
   DateTime _selectedDate = DateTime.now();
   List<DateTime> _checkInTimes = []; // เก็บเวลาเช็คอินจาก tb_check_in_job
+  DateTime? _loadingDate; // เก็บวันที่ที่กำลังโหลดอยู่
 
   // GlobalKeys สำหรับหาตำแหน่งจริงของ hour markers
   final Map<int, GlobalKey> _hourMarkerKeys = {};
@@ -121,6 +122,11 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
           setState(() {
             _actualCurrentTimePosition = calculatedPosition;
           });
+
+          // Scroll ไปที่เส้นสีแดงหลังจากคำนวณตำแหน่งเสร็จ
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToCurrentTime();
+          });
         }
       } else {
         print(
@@ -133,26 +139,82 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
   }
 
   Future<void> _loadJobOrders(DateTime date) async {
+    final dateStr =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    print('📋 [JobOrder] _loadJobOrders called for date: $dateStr');
+
+    // ป้องกันการเรียกหลายครั้งพร้อมกัน - ถ้ากำลังโหลดอยู่แล้ว และเป็นวันที่เดียวกัน ให้ข้าม
+    if (_isLoading && _loadingDate != null) {
+      final loadingDateStr =
+          '${_loadingDate!.year}-${_loadingDate!.month.toString().padLeft(2, '0')}-${_loadingDate!.day.toString().padLeft(2, '0')}';
+      if (loadingDateStr == dateStr) {
+        print(
+            '📋 [JobOrder] Already loading same date, skipping duplicate call for date: $dateStr');
+        return;
+      }
+      // ถ้ากำลังโหลดวันที่อื่นอยู่ ให้รอให้เสร็จก่อน (หรือข้ามไปเลย)
+      print(
+          '📋 [JobOrder] Already loading different date ($loadingDateStr), will continue with new date: $dateStr');
+    }
+
+    // ตั้งค่า loading date
+    _loadingDate = date;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     // โหลดข้อมูล job orders และ check-in times พร้อมกัน
+    print(
+        '📋 [JobOrder] Loading job orders and check-in times for date: $dateStr');
     final jobOrdersResult = await _jobOrderService.getJobOrders(date: date);
-    await _loadCheckInTimes(date);
+    final checkInTimesResult = await _loadCheckInTimesWithoutSetState(date);
+
+    print(
+        '📋 [JobOrder] Job orders result - success: ${jobOrdersResult['success']}, jobs count: ${jobOrdersResult['success'] == true ? (jobOrdersResult['jobs'] as List).length : 0}');
+    print('📋 [JobOrder] Check-in times count: ${checkInTimesResult.length}');
+
+    // ตรวจสอบว่ายังเป็นวันที่ที่เลือกอยู่หรือไม่ (ป้องกัน race condition)
+    final isStillSelectedDate = _selectedDate.year == date.year &&
+        _selectedDate.month == date.month &&
+        _selectedDate.day == date.day;
+
+    if (!isStillSelectedDate) {
+      print(
+          '📋 [JobOrder] Date changed while loading, ignoring results for date: $dateStr');
+      return;
+    }
 
     if (mounted) {
       setState(() {
         _isLoading = false;
+        _loadingDate = null; // ล้าง loading date
+        // ตั้งค่า check-in times จากผลลัพธ์
+        _checkInTimes = checkInTimesResult;
+        print(
+            '📅 [CheckIn] After setState, _checkInTimes has ${_checkInTimes.length} items');
+
         if (jobOrdersResult['success'] == true) {
+          // ตรวจสอบอีกครั้งว่ายังเป็นวันที่ที่เลือกอยู่หรือไม่ (ป้องกัน race condition)
+          final isStillSelectedDate = _selectedDate.year == date.year &&
+              _selectedDate.month == date.month &&
+              _selectedDate.day == date.day;
+
+          if (!isStillSelectedDate) {
+            print(
+                '📋 [JobOrder] Date changed while processing, ignoring results for date: $dateStr');
+            return;
+          }
+
           // กรองข้อมูลตามวันที่ที่เลือก
           final allJobs = jobOrdersResult['jobs'] as List<JobOrder>;
+          print('📋 [JobOrder] Received ${allJobs.length} job(s) from API');
           final selectedDateStart = DateTime(date.year, date.month, date.day);
 
           // กรอง jobs ที่มี routes ในวันที่ที่เลือก
           final filteredJobs = allJobs.where((job) {
-            return job.routes.any((route) {
+            final hasMatchingRoute = job.routes.any((route) {
               if (route.planIn != null) {
                 final routeDate = DateTime(
                   route.planIn!.year,
@@ -175,9 +237,27 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
               }
               return false;
             });
+            if (hasMatchingRoute) {
+              print(
+                  '📋 [JobOrder] Job ${job.jobNo} has matching route for date $dateStr');
+            }
+            return hasMatchingRoute;
           }).toList();
 
+          print(
+              '📋 [JobOrder] Filtered to ${filteredJobs.length} job(s) for date $dateStr');
+          if (filteredJobs.isNotEmpty) {
+            print(
+                '📋 [JobOrder] First filtered job: ${filteredJobs[0].jobNo}, routes: ${filteredJobs[0].routes.length}');
+            for (var route in filteredJobs[0].routes) {
+              if (route.planIn != null) {
+                print(
+                    '📋 [JobOrder] Route ${route.id}: planIn=${route.planIn}, date=${route.planIn!.year}-${route.planIn!.month}-${route.planIn!.day}');
+              }
+            }
+          }
           _jobs = filteredJobs;
+          print('📋 [JobOrder] _jobs set to ${_jobs.length} job(s)');
 
           // คำนวณ summary ใหม่ตามข้อมูลที่กรองแล้ว
           _summary = JobOrderSummary(
@@ -187,34 +267,56 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
             pending: filteredJobs.where((j) => j.isPending).length,
           );
         } else {
+          print(
+              '📋 [JobOrder] Failed to load job orders: ${jobOrdersResult['message']}');
           _errorMessage = jobOrdersResult['message'] as String?;
         }
-      });
-
-      // Scroll ไปที่เวลาปัจจุบันหลังจากโหลดข้อมูลเสร็จ
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToCurrentTime();
       });
     }
   }
 
-  Future<void> _loadCheckInTimes(DateTime date) async {
+  // โหลด check-in times โดยไม่ setState (สำหรับใช้ใน _loadJobOrders)
+  Future<List<DateTime>> _loadCheckInTimesWithoutSetState(DateTime date) async {
     try {
       final dateStr =
           '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      print('📅 [CheckIn] Loading check-in times for date: $dateStr');
       final response = await _checkInService.getCheckInJobsByDate(dateStr);
 
-      if (mounted && response['success'] == true) {
-        final checkIns = response['data'] as List<dynamic>;
-        setState(() {
-          _checkInTimes = checkIns.map((checkIn) {
+      print('📅 [CheckIn] Response success: ${response['success']}');
+      print('📅 [CheckIn] Response data: ${response['data']}');
+
+      if (response['success'] == true) {
+        final checkIns = response['data'];
+        if (checkIns != null && checkIns is List) {
+          print('📅 [CheckIn] Found ${checkIns.length} check-in(s)');
+
+          final checkInTimes = checkIns.map((checkIn) {
+            print(
+                '📅 [CheckIn] Parsing check-in time: ${checkIn['checkInTime']}');
+            // Parse เป็น DateTime (ไม่ต้องแปลงเป็น local time)
             return DateTime.parse(checkIn['checkInTime']);
           }).toList();
-        });
+
+          print('📅 [CheckIn] Loaded ${checkInTimes.length} check-in times');
+          for (var time in checkInTimes) {
+            print(
+                '📅 [CheckIn] - ${time.toString()} (year: ${time.year}, month: ${time.month}, day: ${time.day}, hour: ${time.hour})');
+          }
+
+          return checkInTimes;
+        } else {
+          print('📅 [CheckIn] No check-in data (null or not a list)');
+          return [];
+        }
+      } else {
+        print('📅 [CheckIn] Failed to load: ${response['message']}');
+        return [];
       }
-    } catch (e) {
-      print('Error loading check-in times: $e');
-      // ไม่แสดง error เพราะไม่ใช่ข้อมูลหลัก
+    } catch (e, stackTrace) {
+      print('❌ [CheckIn] Error loading check-in times: $e');
+      print('❌ [CheckIn] Stack trace: $stackTrace');
+      return [];
     }
   }
 
@@ -370,8 +472,8 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
         Navigator.of(context).pop(); // ปิด loading dialog
 
         if (result['success'] == true) {
-          // Refresh ข้อมูล check-in times
-          await _loadCheckInTimes(_selectedDate);
+          // Refresh ข้อมูล job orders และ check-in times เพื่อให้ timeline อัปเดต
+          await _loadJobOrders(_selectedDate);
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -414,29 +516,56 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
 
     // Scroll ไปที่เวลาปัจจุบันเฉพาะเมื่อเลือกวันที่เป็นวันนี้
     if (selectedDate.isAtSameMomentAs(today)) {
-      final currentHour = now.hour;
-      final currentMinute = now.minute;
+      // ใช้ตำแหน่งจริงของเส้นสีแดงถ้ามี
+      if (_actualCurrentTimePosition != null) {
+        // เพิ่ม offset สำหรับ sticky header (ประมาณ 200 pixels)
+        // และลบ offset เพื่อให้เส้นสีแดงอยู่ตรงกลางหน้าจอ
+        final screenHeight = MediaQuery.of(context).size.height;
+        final scrollPosition =
+            _actualCurrentTimePosition! + 200 - (screenHeight / 2);
 
-      // คำนวณตำแหน่งโดยประมาณ
-      // แต่ละ hour marker มี padding bottom 8px + circle 24px = 32px
-      // แต่ละชั่วโมงประมาณ 100 pixels รวม spacing
-      final estimatedPosition =
-          currentHour * 100.0 + (currentMinute / 60.0) * 100.0;
+        // รอให้ layout เสร็จก่อน scroll
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              scrollPosition.clamp(
+                  0.0, _scrollController.position.maxScrollExtent),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeInOut,
+            );
+            print(
+                '🔴 SCROLL: Scrolling to position: $scrollPosition (red line at: ${_actualCurrentTimePosition})');
+          }
+        });
+      } else {
+        // ถ้ายังไม่มีตำแหน่งจริง ให้คำนวณโดยประมาณ
+        final currentHour = now.hour;
+        final currentMinute = now.minute;
 
-      // เพิ่ม offset สำหรับ sticky header (ประมาณ 200 pixels)
-      final scrollPosition = estimatedPosition + 200;
+        // คำนวณตำแหน่งโดยประมาณ
+        // แต่ละ hour marker มี padding bottom 8px + circle 18px = 26px
+        // แต่ละชั่วโมงประมาณ 100 pixels รวม spacing
+        final estimatedPosition =
+            currentHour * 100.0 + (currentMinute / 60.0) * 100.0;
 
-      // รอให้ layout เสร็จก่อน scroll
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            scrollPosition.clamp(
-                0.0, _scrollController.position.maxScrollExtent),
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeInOut,
-          );
-        }
-      });
+        // เพิ่ม offset สำหรับ sticky header (ประมาณ 200 pixels)
+        final screenHeight = MediaQuery.of(context).size.height;
+        final scrollPosition = estimatedPosition + 200 - (screenHeight / 2);
+
+        // รอให้ layout เสร็จก่อน scroll
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              scrollPosition.clamp(
+                  0.0, _scrollController.position.maxScrollExtent),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeInOut,
+            );
+            print(
+                '🔴 SCROLL: Scrolling to estimated position: $scrollPosition');
+          }
+        });
+      }
     }
   }
 
@@ -789,13 +918,28 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
     // รวม routes ทั้งหมดที่ตรงกับวันที่ที่เลือก (แสดงเฉพาะ routes)
     List<TimelineItem> timelineItems = [];
 
+    print('📋 [Timeline] Building timeline with ${_jobs.length} job(s)');
+    print(
+        '📋 [Timeline] Selected date start: ${selectedDateStart.year}-${selectedDateStart.month.toString().padLeft(2, '0')}-${selectedDateStart.day.toString().padLeft(2, '0')}');
     for (var job in _jobs) {
+      print(
+          '📋 [Timeline] Processing job ${job.jobNo} with ${job.routes.length} route(s)');
       // เพิ่ม routes เท่านั้น (กรองตามวันที่)
       for (var route in job.routes) {
         if (route.planIn != null) {
-          final routeDate = DateTime(
-              route.planIn!.year, route.planIn!.month, route.planIn!.day);
-          if (routeDate.isAtSameMomentAs(selectedDateStart)) {
+          // ใช้ UTC date เพื่อเปรียบเทียบ (planIn จาก backend เป็น UTC)
+          final planInUtc = route.planIn!.toUtc();
+          final routeDateUtc =
+              DateTime.utc(planInUtc.year, planInUtc.month, planInUtc.day);
+          // แปลง selectedDateStart เป็น UTC สำหรับเปรียบเทียบ
+          final selectedDateStartUtc = DateTime.utc(selectedDateStart.year,
+              selectedDateStart.month, selectedDateStart.day);
+
+          print(
+              '📋 [Timeline] Route ${route.id}: planIn=${route.planIn} (UTC: ${planInUtc.year}-${planInUtc.month.toString().padLeft(2, '0')}-${planInUtc.day.toString().padLeft(2, '0')}), routeDateUtc=${routeDateUtc.year}-${routeDateUtc.month.toString().padLeft(2, '0')}-${routeDateUtc.day.toString().padLeft(2, '0')}, selectedDateStartUtc=${selectedDateStartUtc.year}-${selectedDateStartUtc.month.toString().padLeft(2, '0')}-${selectedDateStartUtc.day.toString().padLeft(2, '0')}');
+
+          if (routeDateUtc.isAtSameMomentAs(selectedDateStartUtc)) {
+            print('📋 [Timeline] ✅ Adding route ${route.id} to timeline');
             timelineItems.add(TimelineItem(
               time: route.planIn!,
               title: route.locationName ?? 'ไม่ระบุสถานที่',
@@ -808,10 +952,15 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
               isActive:
                   job.isAccepted && !job.isCompleted && route.actualIn == null,
             ));
+          } else {
+            print('📋 [Timeline] ❌ Route ${route.id} date mismatch');
           }
+        } else {
+          print('📋 [Timeline] Route ${route.id} has no planIn');
         }
       }
     }
+    print('📋 [Timeline] Total timeline items: ${timelineItems.length}');
 
     // เรียงตามเวลา
     timelineItems.sort((a, b) => a.time.compareTo(b.time));
@@ -1035,12 +1184,42 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
     }
 
     // หาเวลาเช็คอินที่อยู่ในชั่วโมงนี้
+    // เปรียบเทียบวันที่โดยใช้ UTC date (เพราะ checkInTime เป็น UTC)
+    final selectedDateStart = DateTime.utc(
+        _selectedDate.year, _selectedDate.month, _selectedDate.day);
+
+    print(
+        '📅 [CheckIn] _buildHourMarker - Hour: $hour, Selected date: ${_selectedDate.toString()}, Selected date UTC: ${selectedDateStart.toString()}');
+    print('📅 [CheckIn] Total check-in times: ${_checkInTimes.length}');
+    for (var ct in _checkInTimes) {
+      print(
+          '📅 [CheckIn] - Check-in time: ${ct.toString()} (year: ${ct.year}, month: ${ct.month}, day: ${ct.day}, hour: ${ct.hour})');
+    }
+
     final checkInTimesForThisHour = _checkInTimes.where((checkInTime) {
-      return checkInTime.hour == hour &&
-          checkInTime.year == _selectedDate.year &&
-          checkInTime.month == _selectedDate.month &&
-          checkInTime.day == _selectedDate.day;
+      // ใช้ UTC date สำหรับเปรียบเทียบ
+      final checkInDate =
+          DateTime.utc(checkInTime.year, checkInTime.month, checkInTime.day);
+      final isSameDate = checkInDate.isAtSameMomentAs(selectedDateStart);
+      final isSameHour = checkInTime.hour == hour;
+
+      print(
+          '📅 [CheckIn] Comparing - Check-in date UTC: ${checkInDate.toString()}, Selected date UTC: ${selectedDateStart.toString()}, Is same date: $isSameDate, Is same hour: $isSameHour (check-in hour: ${checkInTime.hour}, target hour: $hour)');
+
+      if (isSameDate && isSameHour) {
+        print(
+            '📅 [CheckIn] ✅ Match found - Hour: $hour, Check-in: ${checkInTime.toString()}');
+      }
+
+      return isSameDate && isSameHour;
     }).toList();
+
+    if (checkInTimesForThisHour.isNotEmpty) {
+      print(
+          '📅 [CheckIn] ✅ Hour $hour has ${checkInTimesForThisHour.length} check-in(s)');
+    } else {
+      print('📅 [CheckIn] ❌ Hour $hour has 0 check-in(s)');
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
@@ -1051,7 +1230,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
           SizedBox(
             width: 80,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
                   hourStr,
@@ -1061,19 +1240,42 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                // แสดงเวลาเช็คอิน
+                // แสดงเวลาเช็คอิน - อยู่ใกล้เส้นแนวตั้ง (ชิดขวา)
                 if (checkInTimesForThisHour.isNotEmpty)
                   ...checkInTimesForThisHour.map((checkInTime) {
                     final timeStr =
                         '${checkInTime.hour.toString().padLeft(2, '0')}:${checkInTime.minute.toString().padLeft(2, '0')}';
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 2.0),
-                      child: Text(
-                        '✓ $timeStr',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.green[600],
-                          fontWeight: FontWeight.w500,
+                    return Container(
+                      margin: const EdgeInsets.only(top: 2.0),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6.0, vertical: 3.0),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(4.0),
+                      ),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'เช็คอิน',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              timeStr,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     );
@@ -1287,7 +1489,9 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
             ),
             // แสดง actual_in และ actual_out ถ้ามีข้อมูล
             if (item.route?.actualIn != null ||
-                item.route?.actualOut != null) ...[
+                item.route?.actualOut != null ||
+                item.route?.actualIn2 != null ||
+                item.route?.actualOut2 != null) ...[
               const SizedBox(height: 4),
               Row(
                 children: [
@@ -1310,6 +1514,95 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                 ],
               ),
             ],
+            // แสดงสถานะเข้างานและออกงาน
+            Builder(
+              builder: (context) {
+                if (item.route == null) {
+                  return const SizedBox.shrink();
+                }
+
+                // ใช้สถานะจาก API
+                final checkInStatus = item.route?.checkInStatus;
+                final checkOutStatus = item.route?.checkOutStatus;
+
+                if (checkInStatus == null && checkOutStatus == null) {
+                  return const SizedBox.shrink();
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        if (checkInStatus != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: checkInStatus == 'เข้าตามเวลา'
+                                  ? Colors.green[100]
+                                  : checkInStatus == 'เข้าสาย'
+                                      ? Colors.red[100]
+                                      : Colors.orange[100],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: checkInStatus == 'เข้าตามเวลา'
+                                    ? Colors.green[300]!
+                                    : checkInStatus == 'เข้าสาย'
+                                        ? Colors.red[300]!
+                                        : Colors.orange[300]!,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              checkInStatus,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: checkInStatus == 'เข้าตามเวลา'
+                                    ? Colors.green[700]
+                                    : checkInStatus == 'เข้าสาย'
+                                        ? Colors.red[700]
+                                        : Colors.orange[700],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        if (checkOutStatus != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: checkOutStatus == 'ออกตามเวลา'
+                                  ? Colors.green[100]
+                                  : Colors.orange[100],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: checkOutStatus == 'ออกตามเวลา'
+                                    ? Colors.green[300]!
+                                    : Colors.orange[300]!,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              checkOutStatus,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: checkOutStatus == 'ออกตามเวลา'
+                                    ? Colors.green[700]
+                                    : Colors.orange[700],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -1507,7 +1800,9 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                   ),
                   // แสดง actual_in และ actual_out ถ้ามีข้อมูล
                   if (item.route?.actualIn != null ||
-                      item.route?.actualOut != null) ...[
+                      item.route?.actualOut != null ||
+                      item.route?.actualIn2 != null ||
+                      item.route?.actualOut2 != null) ...[
                     const SizedBox(height: 4),
                     Row(
                       children: [
@@ -1530,6 +1825,92 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                       ],
                     ),
                   ],
+                  // แสดงสถานะเข้างานและออกงาน
+                  if (item.route != null)
+                    Builder(
+                      builder: (context) {
+                        // ใช้สถานะจาก API
+                        final checkInStatus = item.route?.checkInStatus;
+                        final checkOutStatus = item.route?.checkOutStatus;
+
+                        if (checkInStatus == null && checkOutStatus == null) {
+                          return const SizedBox.shrink();
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              children: [
+                                if (checkInStatus != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: checkInStatus == 'เข้าตามเวลา'
+                                          ? Colors.green[100]
+                                          : checkInStatus == 'เข้าสาย'
+                                              ? Colors.red[100]
+                                              : Colors.orange[100],
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: checkInStatus == 'เข้าตามเวลา'
+                                            ? Colors.green[300]!
+                                            : checkInStatus == 'เข้าสาย'
+                                                ? Colors.red[300]!
+                                                : Colors.orange[300]!,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      checkInStatus,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: checkInStatus == 'เข้าตามเวลา'
+                                            ? Colors.green[700]
+                                            : checkInStatus == 'เข้าสาย'
+                                                ? Colors.red[700]
+                                                : Colors.orange[700],
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                if (checkOutStatus != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: checkOutStatus == 'ออกตามเวลา'
+                                          ? Colors.green[100]
+                                          : Colors.orange[100],
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: checkOutStatus == 'ออกตามเวลา'
+                                            ? Colors.green[300]!
+                                            : Colors.orange[300]!,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      checkOutStatus,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: checkOutStatus == 'ออกตามเวลา'
+                                            ? Colors.green[700]
+                                            : Colors.orange[700],
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   // Action button
                   if (item.job.isPending && item.isJob) ...[
                     const SizedBox(height: 8),

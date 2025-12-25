@@ -30,10 +30,14 @@ class JobOrderService {
             })
           : uri;
       
+      print('📋 [JobOrderService] Requesting job orders from: $uriWithParams');
       final response = await http.get(
         uriWithParams,
         headers: await _getHeaders(),
       );
+
+      print('📋 [JobOrderService] Response status: ${response.statusCode}');
+      print('📋 [JobOrderService] Response body: ${response.body}');
 
       final data = jsonDecode(response.body);
 
@@ -43,12 +47,18 @@ class JobOrderService {
             .map((j) => JobOrder.fromJson(j as Map<String, dynamic>))
             .toList();
 
+        print('📋 [JobOrderService] Success! Jobs count: ${jobs.length}');
+        if (jobs.length > 0) {
+          print('📋 [JobOrderService] First job: ${jobs[0].jobNo}, routes: ${jobs[0].routes.length}');
+        }
+
         return {
           'success': true,
           'summary': summary,
           'jobs': jobs,
         };
       } else {
+        print('📋 [JobOrderService] Failed: ${data['message'] ?? 'Unknown error'}');
         return {
           'success': false,
           'message': data['message'] ?? 'ไม่สามารถดึงข้อมูล job orders ได้',

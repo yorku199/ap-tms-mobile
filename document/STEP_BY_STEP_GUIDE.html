@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>คู่มือการใช้งานแบบ Step-by-Step - TMS Mobile Application</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #2c3e50;
+            border-bottom: 4px solid #e74c3c;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+
+        h2 {
+            color: #34495e;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            font-size: 1.8em;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        h3 {
+            color: #2980b9;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+            border-left: 4px solid #2980b9;
+            padding-left: 10px;
+        }
+
+        h4 {
+            color: #555;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+
+        .step-box {
+            background: #f8f9fa;
+            border-left: 5px solid #3498db;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .step-box h4 {
+            color: #2980b9;
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .step-number {
+            display: inline-block;
+            background: #3498db;
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 35px;
+            font-weight: bold;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        .screenshot-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .screenshot-item {
+            background: #fff;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .screenshot-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .screenshot-item img {
+            width: 100%;
+            height: auto;
+            border-radius: 5px;
+            display: block;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        .screenshot-item .caption {
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.9);
+            overflow: auto;
+        }
+
+        .modal-content {
+            margin: auto;
+            display: block;
+            width: 90%;
+            max-width: 1200px;
+            margin-top: 50px;
+            animation: zoom 0.3s;
+        }
+
+        @keyframes zoom {
+            from {transform: scale(0.5)}
+            to {transform: scale(1)}
+        }
+
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: #bbb;
+        }
+
+        ul, ol {
+            margin-left: 30px;
+            margin-bottom: 15px;
+        }
+
+        li {
+            margin: 8px 0;
+            line-height: 1.8;
+        }
+
+        .flow-diagram {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 2px solid #dee2e6;
+            font-family: 'Courier New', monospace;
+            white-space: pre;
+            overflow-x: auto;
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+
+        .status-box {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 5px;
+            margin: 5px;
+            font-weight: bold;
+            font-size: 0.95em;
+        }
+
+        .status-on-time {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #c3e6cb;
+        }
+
+        .status-early {
+            background: #fff3cd;
+            color: #856404;
+            border: 2px solid #ffeaa7;
+        }
+
+        .status-late {
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #f5c6cb;
+        }
+
+        .note {
+            background: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .note strong {
+            color: #856404;
+        }
+
+        .troubleshooting {
+            background: #f8d7da;
+            padding: 15px;
+            border-left: 4px solid #dc3545;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .troubleshooting h3 {
+            color: #721c24;
+            border-left: none;
+            padding-left: 0;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e83e8c;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #ddd;
+            color: #666;
+        }
+
+        .highlight {
+            background: #fff3cd;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .icon {
+            font-size: 1.2em;
+            margin-right: 5px;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+            .screenshot-item {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 คู่มือการใช้งานแบบ Step-by-Step</h1>
+        <h2 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 30px;">
+            TMS Mobile Application
+        </h2>
+
+        <hr style="margin: 30px 0; border: none; border-top: 2px solid #ddd;">
+
+        <!-- การเช็คอิน -->
+        <section id="check-in">
+            <h2>📱 1. การเช็คอินเข้างาน (Check-in)</h2>
+
+            <div class="screenshot-gallery">
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 140132.png" alt="เช็คอิน 1" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 140132.png</div>
+                </div>
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 140147.png" alt="เช็คอิน 2" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 140147.png</div>
+                </div>
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 140215.png" alt="เช็คอิน 3" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 140215.png</div>
+                </div>
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 140241.png" alt="เช็คอิน 4" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 140241.png</div>
+                </div>
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 140323.png" alt="เช็คอิน 5" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 140323.png</div>
+                </div>
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 140413.png" alt="เช็คอิน 6" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 140413.png</div>
+                </div>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">1</span>เปิดหน้าเช็คอิน</h4>
+                <ul>
+                    <li>จากหน้าหลัก กดปุ่ม "เช็คอิน" หรือเมนูที่เกี่ยวข้อง</li>
+                    <li>ระบบจะเปิดหน้าเช็คอินพร้อมแสดงแผนที่</li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">2</span>ตรวจสอบตำแหน่ง</h4>
+                <ul>
+                    <li>ระบบจะขออนุญาตเข้าถึงตำแหน่ง GPS</li>
+                    <li>อนุญาตให้เข้าถึงตำแหน่ง</li>
+                    <li>ระบบจะแสดงตำแหน่งปัจจุบันบนแผนที่</li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">3</span>ตรวจสอบระยะทาง</h4>
+                <ul>
+                    <li>ระบบจะคำนวณระยะทางจากตำแหน่งปัจจุบันไปยังบริษัท</li>
+                    <li><strong>ถ้าอยู่ในรัศมีที่กำหนด:</strong>
+                        <ul>
+                            <li>ปุ่ม "เช็คอิน" จะพร้อมใช้งาน</li>
+                            <li>แสดงระยะทาง (เช่น "ระยะทาง: 50 เมตร")</li>
+                        </ul>
+                    </li>
+                    <li><strong>ถ้าอยู่นอกรัศมี:</strong>
+                        <ul>
+                            <li>ปุ่ม "เช็คอิน" จะถูกปิดการใช้งาน</li>
+                            <li>แสดงระยะทาง (เช่น "ระยะทาง: 500 เมตร")</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">4</span>กดปุ่มเช็คอิน</h4>
+                <ul>
+                    <li>กดปุ่ม "เช็คอิน"</li>
+                    <li>ระบบจะบันทึกข้อมูล:
+                        <ul>
+                            <li>เวลาเช็คอิน</li>
+                            <li>ตำแหน่ง GPS</li>
+                            <li>ระยะทาง</li>
+                            <li>อัพเดท <code>actual_in</code> หรือ <code>actual_out</code> ใน Job Routes (ถ้ามี)</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">5</span>ดูผลลัพธ์</h4>
+                <ul>
+                    <li>ระบบจะแสดงข้อความสำเร็จ</li>
+                    <li>แสดงเวลาเช็คอินที่ด้านล่างของหน้าจอ</li>
+                </ul>
+                <div class="note">
+                    <strong>หมายเหตุ:</strong> แสดงเฉพาะวันที่ปัจจุบันเท่านั้น
+                </div>
+            </div>
+        </section>
+
+        <hr style="margin: 30px 0; border: none; border-top: 2px solid #ddd;">
+
+        <!-- การดู Job Orders -->
+        <section id="job-order">
+            <h2>📋 2. การดู Job Orders</h2>
+
+            <div class="screenshot-gallery">
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 142211.png" alt="Job Order 1" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 142211.png</div>
+                </div>
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 142239.png" alt="Job Order 2" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 142239.png</div>
+                </div>
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 142300.png" alt="Job Order 3" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 142300.png</div>
+                </div>
+                <div class="screenshot-item">
+                    <img src="Screenshot 2025-12-25 142317.png" alt="Job Order 4" onclick="openModal(this)">
+                    <div class="caption">Screenshot 2025-12-25 142317.png</div>
+                </div>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">1</span>เปิดหน้า Job Order</h4>
+                <ul>
+                    <li>จากหน้าหลัก กดปุ่ม "Job Order" หรือเมนูที่เกี่ยวข้อง</li>
+                    <li>ระบบจะโหลดข้อมูล Job Orders ของวันที่ปัจจุบัน</li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">2</span>ดู Timeline</h4>
+                <ul>
+                    <li>Timeline แสดงเป็นเส้นแนวตั้งทางซ้าย</li>
+                    <li>มีวงกลมแสดงแต่ละชั่วโมง (00:00 - 23:00)</li>
+                    <li>เส้นสีแดงแสดงเวลาปัจจุบัน</li>
+                    <li>Timeline จะเลื่อนอัตโนมัติไปที่เส้นเวลาปัจจุบัน</li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">3</span>ดู Job Routes</h4>
+                <ul>
+                    <li>Job Routes แสดงเป็นการ์ดบน Timeline</li>
+                    <li>แต่ละการ์ดแสดง:
+                        <ul>
+                            <li>ชื่อ Job</li>
+                            <li>เวลา <code>plan_in</code> และ <code>plan_out</code></li>
+                            <li>เวลา <code>actual_in</code> และ <code>actual_out</code> (ถ้ามี)</li>
+                            <li>สถานะเข้างานและออกงาน</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">4</span>ดูสถานะ</h4>
+                <h5>สถานะเข้างาน:</h5>
+                <ul>
+                    <li>
+                        <span class="status-box status-on-time">🟢 เข้าตามเวลา</span>
+                        - ตรงเวลา ±10 นาที
+                    </li>
+                    <li>
+                        <span class="status-box status-early">🟠 เข้าก่อนเวลา</span>
+                        - ก่อนเวลา >10 นาที
+                    </li>
+                    <li>
+                        <span class="status-box status-late">🔴 เข้าสาย</span>
+                        - หลังเวลา >10 นาที
+                    </li>
+                </ul>
+                <h5>สถานะออกงาน:</h5>
+                <ul>
+                    <li>
+                        <span class="status-box status-on-time">🟢 ออกตามเวลา</span>
+                        - ตรงเวลา ±10 นาที
+                    </li>
+                    <li>
+                        <span class="status-box status-early">🟠 ออกก่อนเวลา</span>
+                        - ก่อนหรือหลังเวลา >10 นาที
+                    </li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">5</span>ดู Check-in Times</h4>
+                <ul>
+                    <li>เวลาเช็คอินจาก <code>tb_check_in_job</code> แสดงเป็น badge สีแดง</li>
+                    <li>อยู่ใกล้เส้น Timeline แนวตั้งทางซ้าย</li>
+                    <li>แสดงข้อความ "เช็คอิน" พร้อมเวลา</li>
+                </ul>
+            </div>
+
+            <div class="step-box">
+                <h4><span class="step-number">6</span>เลือกวันที่อื่น</h4>
+                <ul>
+                    <li>กดที่ปฏิทินด้านบน</li>
+                    <li>เลือกวันที่ที่ต้องการ</li>
+                    <li>ระบบจะโหลดข้อมูลใหม่ตามวันที่ที่เลือก</li>
+                </ul>
+            </div>
+        </section>
+
+        <hr style="margin: 30px 0; border: none; border-top: 2px solid #ddd;">
+
+        <!-- Flow การทำงาน -->
+        <section id="flow">
+            <h2>🔄 3. Flow การทำงานของระบบ</h2>
+
+            <h3>Flow การเช็คอิน</h3>
+            <div class="flow-diagram">┌─────────────────┐
+│  เปิดหน้าเช็คอิน  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  ขออนุญาต GPS   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  ได้ตำแหน่ง GPS │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ คำนวณระยะทาง    │
+└────────┬────────┘
+         │
+         ▼
+    ┌────────┐
+    │ อยู่ใน  │
+    │ รัศมี? │
+    └───┬────┘
+        │
+    ┌───┴───┐
+    │       │
+   ใช่      ไม่ใช่
+    │       │
+    ▼       ▼
+┌────────┐ ┌──────────────┐
+│ แสดง   │ │ แสดงระยะทาง  │
+│ ปุ่ม   │ │ และปิดปุ่ม   │
+│ เช็คอิน│ │ เช็คอิน      │
+└───┬────┘ └──────────────┘
+    │
+    ▼
+┌─────────────────┐
+│  กดปุ่มเช็คอิน   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ บันทึกข้อมูล     │
+│ - เวลาเช็คอิน    │
+│ - ตำแหน่ง GPS   │
+│ - ระยะทาง       │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ อัพเดท actual_in │
+│ หรือ actual_out  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ แสดงผลสำเร็จ    │
+└─────────────────┘</div>
+
+            <h3>Flow การแสดง Job Orders</h3>
+            <div class="flow-diagram">┌─────────────────┐
+│  เปิดหน้า Job    │
+│     Order       │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ โหลดข้อมูลวันที่ │
+│    ปัจจุบัน      │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ ดึงข้อมูล Job    │
+│    Orders       │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ ดึงข้อมูล Check- │
+│    in Times     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ แสดง Timeline   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ แสดง Job Routes │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ แสดง Check-in   │
+│     Badges      │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ คำนวณและแสดง    │
+│    สถานะ        │
+└────────┬────────┘
+         │
+         ▼
+    ┌────────┐
+    │ เลือก  │
+    │ วันที่? │
+    └───┬────┘
+        │
+    ┌───┴───┐
+    │       │
+   ใช่      ไม่ใช่
+    │       │
+    ▼       ▼
+┌────────┐ ┌──────────────┐
+│ โหลด   │ │ แสดงข้อมูล   │
+│ ข้อมูล  │ │ ปัจจุบัน     │
+│ ใหม่   │ │              │
+└────────┘ └──────────────┘</div>
+        </section>
+
+        <hr style="margin: 30px 0; border: none; border-top: 2px solid #ddd;">
+
+        <!-- การคำนวณสถานะ -->
+        <section id="status-calculation">
+            <h2>📊 4. การคำนวณสถานะ</h2>
+
+            <h3>สถานะเข้างาน (Check-in Status)</h3>
+            <div class="flow-diagram">actual_in และ plan_in มีค่า?
+    │
+    ├─ ไม่มี → ไม่แสดงสถานะ
+    │
+    └─ มี → คำนวณ diffMinutes = (actual_in - plan_in) ในหน่วยนาที
+            │
+            ├─ diffMinutes < -10 → "เข้าก่อนเวลา" (สีส้ม)
+            │
+            ├─ -10 ≤ diffMinutes ≤ 10 → "เข้าตามเวลา" (สีเขียว)
+            │
+            └─ diffMinutes > 10 → "เข้าสาย" (สีแดง)</div>
+
+            <h3>สถานะออกงาน (Check-out Status)</h3>
+            <div class="flow-diagram">actual_out และ plan_out มีค่า?
+    │
+    ├─ ไม่มี → ไม่แสดงสถานะ
+    │
+    └─ มี → คำนวณ diffMinutes = (actual_out - plan_out) ในหน่วยนาที
+            │
+            ├─ diffMinutes < -10 → "ออกก่อนเวลา" (สีส้ม)
+            │
+            ├─ -10 ≤ diffMinutes ≤ 10 → "ออกตามเวลา" (สีเขียว)
+            │
+            └─ diffMinutes > 10 → "ออกก่อนเวลา" (สีส้ม)</div>
+        </section>
+
+        <hr style="margin: 30px 0; border: none; border-top: 2px solid #ddd;">
+
+        <!-- หมายเหตุสำคัญ -->
+        <section id="important-notes">
+            <h2>⚠️ 5. หมายเหตุสำคัญ</h2>
+
+            <div class="note">
+                <h4>1. เวลาเช็คอิน/เช็คเอาท์:</h4>
+                <ul>
+                    <li>แสดงเฉพาะวันที่ปัจจุบันเท่านั้น</li>
+                    <li>ถ้าวันนั้นไม่มีข้อมูล จะไม่แสดงอะไร</li>
+                </ul>
+            </div>
+
+            <div class="note">
+                <h4>2. การอัพเดท actual_in/actual_out:</h4>
+                <ul>
+                    <li>ระบบจะอัพเดทเฉพาะเมื่อ <code>checkInTime > planTime</code></li>
+                    <li>อัพเดทเฉพาะ Job Routes ของวันที่ปัจจุบัน</li>
+                </ul>
+            </div>
+
+            <div class="note">
+                <h4>3. Timeline Auto-scroll:</h4>
+                <ul>
+                    <li>Timeline จะเลื่อนอัตโนมัติไปที่เส้นเวลาปัจจุบัน</li>
+                    <li>ใช้ตำแหน่งที่คำนวณจาก layout จริง</li>
+                </ul>
+            </div>
+
+            <div class="note">
+                <h4>4. การ Refresh ข้อมูล:</h4>
+                <ul>
+                    <li>หลังจากเช็คอิน ระบบจะ refresh Timeline อัตโนมัติ</li>
+                    <li>เมื่อเลือกวันที่ใหม่ ระบบจะโหลดข้อมูลใหม่</li>
+                </ul>
+            </div>
+        </section>
+
+        <hr style="margin: 30px 0; border: none; border-top: 2px solid #ddd;">
+
+        <!-- การแก้ไขปัญหา -->
+        <section id="troubleshooting">
+            <h2>🔧 6. การแก้ไขปัญหา</h2>
+
+            <div class="troubleshooting">
+                <h3>ปัญหา: ไม่สามารถเช็คอินได้</h3>
+                <p><strong>สาเหตุที่เป็นไปได้:</strong></p>
+                <ul>
+                    <li>ไม่อยู่ในรัศมีที่กำหนด</li>
+                    <li>ไม่ได้รับอนุญาตเข้าถึง GPS</li>
+                    <li>ไม่มีการเชื่อมต่ออินเทอร์เน็ต</li>
+                </ul>
+                <p><strong>วิธีแก้ไข:</strong></p>
+                <ol>
+                    <li>ตรวจสอบว่าอยู่ในรัศมีหรือไม่</li>
+                    <li>อนุญาตให้เข้าถึงตำแหน่ง GPS</li>
+                    <li>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</li>
+                </ol>
+            </div>
+
+            <div class="troubleshooting">
+                <h3>ปัญหา: ไม่แสดงข้อมูลเช็คอินบน Timeline</h3>
+                <p><strong>สาเหตุที่เป็นไปได้:</strong></p>
+                <ul>
+                    <li>เช็คอินในวันที่อื่น (ไม่ใช่วันปัจจุบัน)</li>
+                    <li>ข้อมูลยังไม่ถูกบันทึก</li>
+                </ul>
+                <p><strong>วิธีแก้ไข:</strong></p>
+                <ol>
+                    <li>ตรวจสอบว่าเช็คอินในวันที่ปัจจุบันหรือไม่</li>
+                    <li>Refresh หน้า Job Order</li>
+                    <li>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</li>
+                </ol>
+            </div>
+
+            <div class="troubleshooting">
+                <h3>ปัญหา: สถานะไม่แสดง</h3>
+                <p><strong>สาเหตุที่เป็นไปได้:</strong></p>
+                <ul>
+                    <li>ไม่มี <code>actual_in</code>/<code>actual_out</code></li>
+                    <li>ไม่มี <code>plan_in</code>/<code>plan_out</code></li>
+                    <li>เวลาต่างกันเกิน ±10 นาที</li>
+                </ul>
+                <p><strong>วิธีแก้ไข:</strong></p>
+                <ol>
+                    <li>ตรวจสอบว่ามีข้อมูลครบถ้วนหรือไม่</li>
+                    <li>ตรวจสอบว่าเช็คอินแล้วหรือยัง</li>
+                    <li>ตรวจสอบว่าเวลาตรงกันหรือไม่</li>
+                </ol>
+            </div>
+        </section>
+
+        <div class="footer">
+            <p><em>เอกสารนี้สร้างจาก Screenshot วันที่ 25 ธันวาคม 2025</em></p>
+        </div>
+    </div>
+
+    <!-- Modal for full size images -->
+    <div id="imageModal" class="modal">
+        <span class="close" onclick="closeModal()">&times;</span>
+        <img class="modal-content" id="modalImage">
+    </div>
+
+    <script>
+        function openModal(img) {
+            var modal = document.getElementById("imageModal");
+            var modalImg = document.getElementById("modalImage");
+            modal.style.display = "block";
+            modalImg.src = img.src;
+        }
+
+        function closeModal() {
+            var modal = document.getElementById("imageModal");
+            modal.style.display = "none";
+        }
+
+        // Close modal when clicking outside the image
+        window.onclick = function(event) {
+            var modal = document.getElementById("imageModal");
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeModal();
+            }
+        });
+    </script>
+</body>
+</html>
+

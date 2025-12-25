@@ -213,25 +213,35 @@ class CheckInService {
   // ดึงข้อมูลเช็คอินเข้างานตามวันที่
   Future<Map<String, dynamic>> getCheckInJobsByDate(String date) async {
     try {
+      final uri = Uri.parse('$baseUrl/api/check-in-job/by-date').replace(queryParameters: {'date': date});
+      print('📅 [CheckInService] Requesting check-in data from: $uri');
+      
       final response = await http.get(
-        Uri.parse('$baseUrl/api/check-in-job/by-date').replace(queryParameters: {'date': date}),
+        uri,
         headers: await _getHeaders(),
       );
+
+      print('📅 [CheckInService] Response status: ${response.statusCode}');
+      print('📅 [CheckInService] Response body: ${response.body}');
 
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200 && data['success'] == true) {
+        print('📅 [CheckInService] Success! Data count: ${(data['data'] as List).length}');
         return {
           'success': true,
           'data': data['data'],
         };
       } else {
+        print('📅 [CheckInService] Failed: ${data['message']}');
         return {
           'success': false,
           'message': data['message'] ?? 'ไม่สามารถดึงข้อมูลเช็คอินเข้างานได้',
         };
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ [CheckInService] Error: $e');
+      print('❌ [CheckInService] Stack trace: $stackTrace');
       return {
         'success': false,
         'message': 'เกิดข้อผิดพลาด: ${e.toString()}',

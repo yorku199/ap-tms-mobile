@@ -870,8 +870,8 @@ class _CheckInScreenState extends State<CheckInScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              // แสดงช่องเวลาเช็คอินและเวลาเช็คเอาท์
-                              if (_latestCheckIn != null)
+                              // แสดงช่องเวลาเช็คอินและเวลาเช็คเอาท์ (เฉพาะวันที่ปัจจุบัน)
+                              if (_latestCheckIn != null && _isTodayCheckIn(_latestCheckIn!))
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: Row(
@@ -1189,6 +1189,42 @@ class _CheckInScreenState extends State<CheckInScreen> {
     
     // ถ้า check in time ไม่ใช่วันนี้ แสดงว่าขึ้นวันใหม่แล้ว
     return checkInDate.isBefore(today);
+  }
+
+  // ตรวจสอบว่า check-in เป็นของวันที่ปัจจุบันหรือไม่
+  bool _isTodayCheckIn(CheckIn checkIn) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    
+    // ตรวจสอบจาก checkInTime
+    if (checkIn.checkInTime != null) {
+      final checkInDate = DateTime(
+        checkIn.checkInTime!.year,
+        checkIn.checkInTime!.month,
+        checkIn.checkInTime!.day,
+      );
+      if (checkInDate.year == today.year &&
+          checkInDate.month == today.month &&
+          checkInDate.day == today.day) {
+        return true;
+      }
+    }
+    
+    // ตรวจสอบจาก checkOutTime
+    if (checkIn.checkOutTime != null) {
+      final checkOutDate = DateTime(
+        checkIn.checkOutTime!.year,
+        checkIn.checkOutTime!.month,
+        checkIn.checkOutTime!.day,
+      );
+      if (checkOutDate.year == today.year &&
+          checkOutDate.month == today.month &&
+          checkOutDate.day == today.day) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   // คำนวณว่าสายหรือก่อนเวลากี่ชั่วโมงกี่นาที (สำหรับเช็คอิน)

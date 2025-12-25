@@ -16,7 +16,12 @@ router.post('/check-in', authenticateToken, (req, res, next) => {
 router.get('/latest', authenticateToken, checkInJobController.getLatestCheckInJob);
 
 // GET /api/check-in-job/by-date?date=YYYY-MM-DD - ดึงข้อมูลเช็คอินเข้างานตามวันที่
-router.get('/by-date', authenticateToken, checkInJobController.getCheckInJobsByDate);
+router.get('/by-date', authenticateToken, (req, res, next) => {
+  console.log('🟢 [CheckInJob Route] GET /api/check-in-job/by-date - Request received');
+  console.log('🟢 [CheckInJob Route] Query params:', req.query);
+  console.log('🟢 [CheckInJob Route] User:', req.user);
+  next();
+}, checkInJobController.getCheckInJobsByDate);
 
 module.exports = router;
 
