@@ -7,7 +7,7 @@ const fsSync = require('fs');
 // ตั้งค่า multer สำหรับอัพโหลดไฟล์
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = 'uploads/profile_images';
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'profile_images');
     // สร้าง folder ถ้ายังไม่มี
     if (!fsSync.existsSync(uploadDir)) {
       fsSync.mkdirSync(uploadDir, { recursive: true });

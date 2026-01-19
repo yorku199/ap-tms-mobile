@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import '../config/api_config.dart';
 import '../utils/storage.dart';
 import '../models/check_in_model.dart';
@@ -153,31 +154,79 @@ class CheckInService {
     required double userLat,
     required double userLong,
     required double mileage,
+    XFile? imageFile,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/check-in-job/check-in'),
-        headers: await _getHeaders(),
-        body: jsonEncode({
-          'user_lat': userLat,
-          'user_long': userLong,
-          'mileage': mileage,
-        }),
-      );
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200 && data['success'] == true) {
-        return {
-          'success': true,
-          'message': data['message'] ?? 'เช็คอินเข้างานสำเร็จ',
-          'data': data['data'],
-        };
-      } else {
+      final token = await Storage.getToken();
+      if (token == null) {
         return {
           'success': false,
-          'message': data['message'] ?? 'ไม่สามารถเช็คอินเข้างานได้',
+          'message': 'กรุณาเข้าสู่ระบบใหม่',
         };
+      }
+
+      // ถ้ามีรูปภาพ ใช้ multipart/form-data
+      if (imageFile != null) {
+        final uri = Uri.parse('$baseUrl/api/check-in-job/check-in');
+        final request = http.MultipartRequest('POST', uri);
+        
+        // เพิ่ม headers
+        request.headers['Authorization'] = 'Bearer $token';
+        
+        // เพิ่ม fields
+        request.fields['user_lat'] = userLat.toString();
+        request.fields['user_long'] = userLong.toString();
+        request.fields['mileage'] = mileage.toString();
+        
+        // เพิ่มไฟล์รูปภาพ
+        final file = await http.MultipartFile.fromPath(
+          'image',
+          imageFile.path,
+        );
+        request.files.add(file);
+
+        final streamedResponse = await request.send();
+        final response = await http.Response.fromStream(streamedResponse);
+        final data = jsonDecode(response.body);
+
+        if (response.statusCode == 200 && data['success'] == true) {
+          return {
+            'success': true,
+            'message': data['message'] ?? 'เช็คอินเข้างานสำเร็จ',
+            'data': data['data'],
+          };
+        } else {
+          return {
+            'success': false,
+            'message': data['message'] ?? 'ไม่สามารถเช็คอินเข้างานได้',
+          };
+        }
+      } else {
+        // ถ้าไม่มีรูปภาพ ใช้ JSON
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/check-in-job/check-in'),
+          headers: await _getHeaders(),
+          body: jsonEncode({
+            'user_lat': userLat,
+            'user_long': userLong,
+            'mileage': mileage,
+          }),
+        );
+
+        final data = jsonDecode(response.body);
+
+        if (response.statusCode == 200 && data['success'] == true) {
+          return {
+            'success': true,
+            'message': data['message'] ?? 'เช็คอินเข้างานสำเร็จ',
+            'data': data['data'],
+          };
+        } else {
+          return {
+            'success': false,
+            'message': data['message'] ?? 'ไม่สามารถเช็คอินเข้างานได้',
+          };
+        }
       }
     } catch (e) {
       return {

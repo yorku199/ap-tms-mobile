@@ -1,4 +1,51 @@
 const pool = require('../config/database');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs').promises;
+const fsSync = require('fs');
+
+// ตั้งค่า multer สำหรับอัพโหลดไฟล์รูปภาพ
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'check_in_images');
+    // สร้าง folder ถ้ายังไม่มี
+    if (!fsSync.existsSync(uploadDir)) {
+      fsSync.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // ตั้งชื่อไฟล์: checkin_{userId}_{timestamp}.{extension}
+    const userId = req.user?.Id || 'unknown';
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname);
+    cb(null, `checkin_${userId}_${timestamp}${ext}`);
+  }
+});
+
+// ตรวจสอบประเภทไฟล์
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype);
+
+  if (mimetype && extname) {
+    return cb(null, true);
+  } else {
+    cb(new Error('กรุณาอัพโหลดไฟล์รูปภาพเท่านั้น (jpeg, jpg, png, gif, webp)'));
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB
+  },
+  fileFilter: fileFilter
+});
+
+// Middleware สำหรับอัพโหลดไฟล์ (optional - ไม่บังคับ)
+const uploadMiddleware = upload.single('image');
 
 // ฟังก์ชันแปลง datetime จาก UTC เป็น UTC+7 (Thailand timezone)
 const convertToThailandTime = (date) => {
@@ -14,16 +61,34 @@ const convertToThailandTime = (date) => {
 
 // เช็คอินเข้างาน
 const checkInJob = async (req, res) => {
-  console.log('🔵 [CheckInJob] ========================================');
-  console.log('🔵 [CheckInJob] API called: POST /api/check-in-job/check-in');
-  console.log('🔵 [CheckInJob] Request body:', JSON.stringify(req.body));
-  console.log('🔵 [CheckInJob] User ID:', req.user?.Id);
-  
-  try {
-    const userId = req.user.Id;
-    const { user_lat, user_long, mileage } = req.body;
+  uploadMiddleware(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'เกิดข้อผิดพลาดในการอัพโหลดไฟล์'
+      });
+    }
+
+    console.log('🔵 [CheckInJob] ========================================');
+    console.log('🔵 [CheckInJob] API called: POST /api/check-in-job/check-in');
+    console.log('🔵 [CheckInJob] Request body:', JSON.stringify(req.body));
+    console.log('🔵 [CheckInJob] User ID:', req.user?.Id);
+    console.log('🔵 [CheckInJob] File uploaded:', req.file ? req.file.filename : 'No file');
     
-    console.log('🔵 [CheckInJob] Parsed data - userId:', userId, 'user_lat:', user_lat, 'user_long:', user_long, 'mileage:', mileage);
+    try {
+      const userId = req.user.Id;
+      const { user_lat, user_long, mileage } = req.body;
+      
+      // ตรวจสอบว่ามีรูปภาพหรือไม่ และสร้าง URL
+      let imageUrl = null;
+      if (req.file) {
+        const filePath = `/uploads/check_in_images/${req.file.filename}`;
+        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+        imageUrl = `${baseUrl}${filePath}`;
+        console.log('🔵 [CheckInJob] Image URL:', imageUrl);
+      }
+      
+      console.log('🔵 [CheckInJob] Parsed data - userId:', userId, 'user_lat:', user_lat, 'user_long:', user_long, 'mileage:', mileage, 'imageUrl:', imageUrl);
 
     // ตรวจสอบข้อมูลที่จำเป็น
     if (user_lat === undefined || user_long === undefined) {
@@ -298,48 +363,102 @@ const checkInJob = async (req, res) => {
 
     console.log(`🔵 [CheckInJob] Finished checking routes. Updated ${updatedRoutes.length} route(s)`);
 
+    // ถ้าไม่มีการอัพเดตอะไรเลย ให้ตรวจสอบเงื่อนไขสำรอง
+    // หา route ที่ actual_in = null และ actual_out = null และ plan_in <> null และ plan_out <> null
+    // order by plan_in, plan_out asc และนำแถวที่น้อยที่สุดมาอัพเดต
+    if (updatedRoutes.length === 0) {
+      console.log(`[CheckIn] 🔄 No routes updated, checking fallback condition...`);
+      console.log(`[CheckIn] Looking for routes with: actual_in = null, actual_out = null, plan_in IS NOT NULL, plan_out IS NOT NULL`);
+      
+      const [fallbackRoutes] = await pool.execute(
+        `SELECT jr.id, jr.job_id, jr.plan_in, jr.plan_out
+         FROM tb_job_route jr
+         INNER JOIN tb_job_master jm ON jr.job_id = jm.job_id
+         WHERE jm.driver_id = ?
+           AND jr.actual_in IS NULL
+           AND jr.actual_out IS NULL
+           AND jr.plan_in IS NOT NULL
+           AND jr.plan_out IS NOT NULL
+           AND (
+             (jr.plan_in IS NOT NULL AND DATE(jr.plan_in) = ?) OR
+             (jr.plan_out IS NOT NULL AND DATE(jr.plan_out) = ?)
+           )
+         ORDER BY jr.plan_in ASC, jr.plan_out ASC
+         LIMIT 1`,
+        [userId, checkInDateStr, checkInDateStr]
+      );
+
+      if (fallbackRoutes.length > 0) {
+        const fallbackRoute = fallbackRoutes[0];
+        console.log(`[CheckIn] ✅ Found fallback route ID: ${fallbackRoute.id}, Job ID: ${fallbackRoute.job_id}`);
+        console.log(`[CheckIn] Plan_in: ${new Date(fallbackRoute.plan_in).toISOString()}, Plan_out: ${new Date(fallbackRoute.plan_out).toISOString()}`);
+        
+        // อัพเดต actual_in และ actual_out ด้วยเวลาเช็คอิน
+        const checkInTimeUTC = new Date(checkInTime.getTime() - (7 * 60 * 60 * 1000));
+        
+        await pool.execute(
+          `UPDATE tb_job_route 
+           SET actual_in = ?, actual_out = ?, updated_by = ?, updated_date = NOW() 
+           WHERE id = ?`,
+          [checkInTimeUTC, checkInTimeUTC, req.user.username || userId.toString(), fallbackRoute.id]
+        );
+        
+        console.log(`[CheckIn] ✅ Updated fallback route ${fallbackRoute.id} - actual_in and actual_out set to check-in time`);
+        updatedRoutes.push({ routeId: fallbackRoute.id, field: 'actual_in and actual_out (fallback)' });
+      } else {
+        console.log(`[CheckIn] ⚠️ No fallback route found matching the criteria`);
+      }
+    }
+
     // บันทึกการเช็คอินเข้างาน (insert ทุกครั้ง ไม่มีการตรวจสอบ existing check-in)
     // แปลงกลับเป็น UTC สำหรับบันทึกลง database
     const checkInTimeUTC = new Date(checkInTime.getTime() - (7 * 60 * 60 * 1000));
     console.log('🔵 [CheckInJob] Inserting check-in record...');
     console.log(`🔵 [CheckInJob] Check-in time (Thailand): ${checkInTime.toISOString()}`);
     console.log(`🔵 [CheckInJob] Check-in time (UTC for DB): ${checkInTimeUTC.toISOString()}`);
-    const [result] = await pool.execute(
-      `INSERT INTO tb_check_in_job 
-       (user_id, check_in_time, user_lat, user_long, mileage, created_by, created_date)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-      [
-        userId,
-        checkInTimeUTC,
-        user_lat,
-        user_long,
-        mileage,
-        req.user.username || userId.toString(),
-      ]
-    );
+      const [result] = await pool.execute(
+        `INSERT INTO tb_check_in_job 
+         (user_id, check_in_time, user_lat, user_long, mileage, image_url, created_by, created_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          userId,
+          checkInTimeUTC,
+          user_lat,
+          user_long,
+          mileage,
+          imageUrl,
+          req.user.username || userId.toString(),
+        ]
+      );
     console.log(`🔵 [CheckInJob] ✅ Check-in record inserted with ID: ${result.insertId}`);
 
-    res.json({
-      success: true,
-      message: 'เช็คอินเข้างานสำเร็จ',
-      data: {
-        id: result.insertId,
-        check_in_time: checkInTime, // ส่งกลับเป็นเวลาไทย
-        user_lat: user_lat,
-        user_long: user_long,
-        mileage: mileage,
-        updatedRoutes: updatedRoutes,
-      },
-    });
-  } catch (error) {
-    console.error('🔴 [CheckInJob] ERROR:', error);
-    console.error('🔴 [CheckInJob] Error stack:', error.stack);
-    res.status(500).json({
-      success: false,
-      message: 'เกิดข้อผิดพลาดในการเช็คอินเข้างาน',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
-    });
-  }
+      res.json({
+        success: true,
+        message: 'เช็คอินเข้างานสำเร็จ',
+        data: {
+          id: result.insertId,
+          check_in_time: checkInTime, // ส่งกลับเป็นเวลาไทย
+          user_lat: user_lat,
+          user_long: user_long,
+          mileage: mileage,
+          image_url: imageUrl,
+          updatedRoutes: updatedRoutes,
+        },
+      });
+    } catch (error) {
+      console.error('🔴 [CheckInJob] ERROR:', error);
+      console.error('🔴 [CheckInJob] Error stack:', error.stack);
+      // ลบไฟล์ที่อัพโหลดแล้วถ้าเกิด error
+      if (req.file && fsSync.existsSync(req.file.path)) {
+        fsSync.unlinkSync(req.file.path);
+      }
+      res.status(500).json({
+        success: false,
+        message: 'เกิดข้อผิดพลาดในการเช็คอินเข้างาน',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+    }
+  });
 };
 
 // ดึงข้อมูลเช็คอินเข้างานล่าสุด

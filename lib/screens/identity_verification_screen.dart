@@ -133,6 +133,7 @@ class _IdentityVerificationScreenState
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24.0),
+            physics: const ClampingScrollPhysics(),
             child: Form(
               key: _formKey,
               child: Column(

@@ -1,12 +1,13 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter/rendering.dart';
 import 'package:geolocator/geolocator.dart';
-import '../providers/auth_provider.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/job_order_model.dart';
 import '../services/job_order_service.dart';
 import '../services/check_in_service.dart';
-import 'identity_verification_screen.dart';
 import 'job_detail_screen.dart';
+import 'job_search_screen.dart';
 
 class TimelineItem {
   final DateTime time;
@@ -43,6 +44,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
   final JobOrderService _jobOrderService = JobOrderService();
   final CheckInService _checkInService = CheckInService();
   final ScrollController _scrollController = ScrollController();
+  final ImagePicker _imagePicker = ImagePicker();
   JobOrderSummary? _summary;
   List<JobOrder> _jobs = [];
   bool _isLoading = true;
@@ -380,51 +382,158 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
         desiredAccuracy: LocationAccuracy.high,
       );
 
-      // แสดง dialog เพื่อรับเลขไมล์ (บังคับกรอก)
-      double? mileage;
+      // แสดง dialog เพื่อรับเลขไมล์ (บังคับกรอก) และรูปภาพ
+      Map<String, dynamic>? dialogResult;
       if (mounted) {
         Navigator.of(context).pop(); // ปิด loading dialog ก่อน
-        mileage = await showDialog<double>(
+        dialogResult = await showDialog<Map<String, dynamic>>(
           context: context,
           barrierDismissible: false, // ไม่ให้ปิด dialog โดยการกดนอก dialog
           builder: (context) {
             final mileageController = TextEditingController();
+            XFile? selectedImage;
             return StatefulBuilder(
               builder: (context, setState) {
                 return AlertDialog(
                   title: const Text('เช็คอินเข้างาน'),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'กรุณากรอกเลขไมล์',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: mileageController,
-                        keyboardType:
-                            TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
-                          labelText: 'เลขไมล์ *',
-                          hintText: '0.00',
-                          border: OutlineInputBorder(),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'กรุณากรอกเลขไมล์',
+                          style: TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        autofocus: true,
-                        onChanged: (value) {
-                          setState(
-                              () {}); // อัปเดต UI เพื่อ enable/disable ปุ่ม
-                        },
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: mileageController,
+                          keyboardType:
+                              TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'เลขไมล์ *',
+                            hintText: '0.00',
+                            border: OutlineInputBorder(),
+                          ),
+                          autofocus: true,
+                          onChanged: (value) {
+                            setState(
+                                () {}); // อัปเดต UI เพื่อ enable/disable ปุ่ม
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'แนบรูปภาพ (ไม่บังคับ)',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        if (selectedImage != null) ...[
+                          Container(
+                            height: 150,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey[300]!),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.file(
+                                    File(selectedImage!.path),
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 4,
+                                  right: 4,
+                                  child: IconButton(
+                                    icon: const Icon(Icons.close, color: Colors.white),
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: Colors.black54,
+                                      padding: const EdgeInsets.all(4),
+                                      minimumSize: const Size(32, 32),
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        selectedImage = null;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            // แสดง bottom sheet ให้เลือกว่าจะถ่ายรูปหรือเลือกรูป
+                            final ImageSource? source = await showModalBottomSheet<ImageSource>(
+                              context: context,
+                              builder: (context) => SafeArea(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ListTile(
+                                      leading: const Icon(Icons.camera_alt),
+                                      title: const Text('ถ่ายรูป'),
+                                      onTap: () => Navigator.pop(context, ImageSource.camera),
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.photo_library),
+                                      title: const Text('เลือกรูปภาพ'),
+                                      onTap: () => Navigator.pop(context, ImageSource.gallery),
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.cancel),
+                                      title: const Text('ยกเลิก'),
+                                      onTap: () => Navigator.pop(context),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                            
+                            if (source != null) {
+                              final XFile? image = await _imagePicker.pickImage(
+                                source: source,
+                                maxWidth: 1920,
+                                maxHeight: 1920,
+                                imageQuality: 85,
+                              );
+                              if (image != null) {
+                                setState(() {
+                                  selectedImage = image;
+                                });
+                              }
+                            }
+                          },
+                          icon: const Icon(Icons.add_photo_alternate),
+                          label: Text(selectedImage == null ? 'เลือกรูปภาพ' : 'เปลี่ยนรูปภาพ'),
+                        ),
+                      ],
+                    ),
                   ),
                   actions: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop(null);
+                      },
+                      child: const Text('ยกเลิก'),
+                    ),
                     ElevatedButton(
                       onPressed: () {
                         final mileageValue =
                             double.tryParse(mileageController.text);
                         if (mileageValue != null && mileageValue >= 0) {
-                          Navigator.of(context).pop(mileageValue);
+                          Navigator.of(context).pop({
+                            'mileage': mileageValue,
+                            'image': selectedImage,
+                          });
                         }
                       },
                       style: ElevatedButton.styleFrom(
@@ -434,6 +543,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                                 double.tryParse(mileageController.text)! >= 0
                             ? Colors.red
                             : Colors.grey,
+                        foregroundColor: Colors.white,
                       ),
                       child: const Text('ยืนยัน'),
                     ),
@@ -444,6 +554,15 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
           },
         );
       }
+
+      // ถ้ายกเลิก dialog หรือไม่กรอกเลขไมล์ ให้หยุด
+      if (dialogResult == null && mounted) {
+        return;
+      }
+
+      final dialogData = dialogResult!;
+      final mileage = dialogData['mileage'] as double?;
+      final selectedImage = dialogData['image'] as XFile?;
 
       // ถ้ายกเลิก dialog หรือไม่กรอกเลขไมล์ ให้หยุด
       if (mileage == null && mounted) {
@@ -466,6 +585,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
         userLat: position.latitude,
         userLong: position.longitude,
         mileage: mileage!, // ใช้ ! เพราะผ่านการตรวจสอบแล้ว
+        imageFile: selectedImage,
       );
 
       if (mounted) {
@@ -629,40 +749,6 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
     }
   }
 
-  Future<void> _logout() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('ยืนยันการออกจากระบบ'),
-        content: const Text('คุณต้องการออกจากระบบหรือไม่?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('ยกเลิก'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('ออกจากระบบ'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true && mounted) {
-      await authProvider.logout();
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => const IdentityVerificationScreen(),
-          ),
-          (route) => false,
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -672,9 +758,16 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.lock_open),
-            onPressed: _logout,
-            tooltip: 'ออกจากระบบ',
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const JobSearchScreen(),
+                ),
+              );
+            },
+            tooltip: 'ค้นหา',
           ),
         ],
         bottom: PreferredSize(
@@ -702,14 +795,14 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: CustomScrollView(
         controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: const ClampingScrollPhysics(),
         slivers: [
           // Header Section (Sticky) - แสดงตลอดเวลา
           SliverPersistentHeader(
             pinned: true,
             delegate: _StickyHeaderDelegate(
-              minHeight: 200,
-              maxHeight: 200,
+              minHeight: 184,
+              maxHeight: 184,
               child: Container(
                 color: Colors.white,
                 child: Column(
@@ -717,7 +810,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                   children: [
                     // Statistics Row
                     Container(
-                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
@@ -828,9 +921,10 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
     });
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
         child: Row(
           children: dates.map((date) {
             final isSelected = date.year == _selectedDate.year &&
@@ -851,7 +945,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 4),
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: isSelected ? Colors.teal : Colors.white,
                   borderRadius: BorderRadius.circular(8),
@@ -1007,7 +1101,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
           color: Colors.grey[300],
         ),
       ),
-      // Timeline items (24 hours + jobs)
+      // Timeline items (24 hours + jobs) - ใช้โครงสร้างเดิมที่ hour marker และ items อยู่ใน Column เดียวกัน
       ConstrainedBox(
         constraints: BoxConstraints(
           minHeight: 24 *
@@ -1038,11 +1132,31 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                 groupedItems[timeKey]!.add(item);
               }
 
+              // คำนวณความสูงที่ต้องการสำหรับ check-in times
+              final checkInTimesForThisHour = _checkInTimes.where((checkInTime) {
+                final selectedDateStart = DateTime.utc(
+                    _selectedDate.year, _selectedDate.month, _selectedDate.day);
+                final checkInDate =
+                    DateTime.utc(checkInTime.year, checkInTime.month, checkInTime.day);
+                final isSameDate = checkInDate.isAtSameMomentAs(selectedDateStart);
+                final isSameHour = checkInTime.hour == hour;
+                return isSameDate && isSameHour;
+              }).toList();
+              
+              // คำนวณความสูง: 26px (hour label + circle) + check-in times height
+              final checkInHeight = checkInTimesForThisHour.length > 0
+                  ? (checkInTimesForThisHour.length * 20.0) + 4.0 // แต่ละ check-in time ประมาณ 20px
+                  : 0.0;
+              final hourMarkerHeight = (26.0 + checkInHeight).clamp(26.0, 200.0); // max 200px
+
               return Column(
                 children: [
-                  // Hour marker
-                  _buildHourMarker(hour),
-                  // Jobs for this hour - จัดกลุ่มตามเวลา
+                  // Hour marker - ขยายได้ตาม check-in times
+                  SizedBox(
+                    height: hourMarkerHeight,
+                    child: _buildHourMarker(hour),
+                  ),
+                  // Jobs for this hour - จัดกลุ่มตามเวลา (ขยายได้ตามเนื้อหา)
                   if (itemsForThisHour.isNotEmpty)
                     ...groupedItems.entries.expand((group) {
                       final itemsAtSameTime = group.value;
@@ -1071,12 +1185,11 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                         ];
                       }
                     }),
-                  // Empty space if no jobs and last hour
-                  if (itemsForThisHour.isEmpty && hour == 23)
-                    const SizedBox(height: 16),
                 ],
               );
             }),
+            // Empty space if no jobs and last hour
+            if (timelineItems.isEmpty) const SizedBox(height: 16),
           ],
         ),
       ),
@@ -1166,7 +1279,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
+      padding: const EdgeInsets.fromLTRB(8.0, 8.0, 8.0, 16.0),
       child: Stack(
         key: _timelineStackKey,
         clipBehavior: Clip.none, // อนุญาตให้ widget อยู่นอกขอบเขต
@@ -1221,83 +1334,93 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
       print('📅 [CheckIn] ❌ Hour $hour has 0 check-in(s)');
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Row(
-        key: _hourMarkerKeys[hour],
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  hourStr,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey[700],
-                    fontWeight: FontWeight.w600,
-                  ),
+    return Stack(
+      clipBehavior: Clip.none, // อนุญาตให้ check-in times อยู่นอกขอบเขต
+      children: [
+        // Hour label และวงกลม - อยู่ที่ตำแหน่งคงที่ (top: 0)
+        Row(
+          key: _hourMarkerKeys[hour],
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                hourStr,
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w600,
                 ),
-                // แสดงเวลาเช็คอิน - อยู่ใกล้เส้นแนวตั้ง (ชิดขวา)
-                if (checkInTimesForThisHour.isNotEmpty)
-                  ...checkInTimesForThisHour.map((checkInTime) {
-                    final timeStr =
-                        '${checkInTime.hour.toString().padLeft(2, '0')}:${checkInTime.minute.toString().padLeft(2, '0')}';
-                    return Container(
-                      margin: const EdgeInsets.only(top: 2.0),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6.0, vertical: 3.0),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(4.0),
-                      ),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              'เช็คอิน',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(width: 3),
-                            Text(
-                              timeStr,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-              ],
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            width: 18,
-            height: 18,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white,
-              border: Border.all(
-                color: Colors.grey[400]!,
-                width: 2,
+            const SizedBox(width: 8),
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                border: Border.all(
+                  color: Colors.grey[400]!,
+                  width: 2,
+                ),
+              ),
+            ),
+          ],
+        ),
+        // Check-in times - อยู่ด้านล่าง (ใต้ hour label)
+        if (checkInTimesForThisHour.isNotEmpty)
+          Positioned(
+            top: 20.0, // อยู่ใต้ hour label (ประมาณ 16px text + 4px spacing)
+            left: 0,
+            child: SizedBox(
+              width: 80,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: checkInTimesForThisHour.map((checkInTime) {
+                  final timeStr =
+                      '${checkInTime.hour.toString().padLeft(2, '0')}:${checkInTime.minute.toString().padLeft(2, '0')}';
+                  return Container(
+                    margin: const EdgeInsets.only(top: 2.0),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6.0, vertical: 3.0),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(4.0),
+                    ),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'เช็คอิน',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            timeStr,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
               ),
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -1340,26 +1463,57 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
               : null,
         ),
         const SizedBox(width: 20),
-        // Event cards - แสดงเป็น 2 column
+        // Event cards - แสดงเป็น horizontal scrollable row
         Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Column 1
-              Expanded(
-                child: _buildTimelineItemCard(items[0]),
-              ),
-              // Column 2 (ถ้ามี item ที่ 2)
-              if (items.length > 1) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildTimelineItemCard(items[1]),
-                ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const ClampingScrollPhysics(),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Card 1
+                _buildTimelineItemCardWithAutoWidth(items[0]),
+                // Card 2, 3, ... (ถ้ามีมากกว่า 1 item)
+                ...items.skip(1).map((item) => [
+                  const SizedBox(width: 8),
+                  _buildTimelineItemCardWithAutoWidth(item),
+                ]).expand((x) => x),
               ],
-            ],
+            ),
           ),
         ),
       ],
+    );
+  }
+
+  // สร้างการ์ดที่มีความกว้างตามเนื้อหา (คำนวณจาก title)
+  Widget _buildTimelineItemCardWithAutoWidth(TimelineItem item) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // คำนวณความกว้างจาก title text
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: item.title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          maxLines: 1,
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+        
+        // คำนวณความกว้าง: title width + padding (24) + margin
+        // แต่ต้องมี minWidth และ maxWidth เพื่อไม่ให้แคบหรือกว้างเกินไป
+        final titleWidth = textPainter.size.width;
+        final cardWidth = (titleWidth + 48).clamp(180.0, 400.0); // min: 180, max: 400
+        
+        return SizedBox(
+          width: cardWidth,
+          child: _buildTimelineItemCard(item),
+        );
+      },
     );
   }
 
@@ -1405,7 +1559,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
             Text(
               item.title,
               style: TextStyle(
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: FontWeight.bold,
                 color: item.isActive ? Colors.teal[900] : Colors.black87,
               ),
@@ -1422,7 +1576,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                 child: Text(
                   item.job.jobNo,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 9,
                     color: Colors.blue[700],
                     fontWeight: FontWeight.w500,
                   ),
@@ -1434,7 +1588,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
               children: [
                 Icon(
                   Icons.location_on,
-                  size: 14,
+                  size: 12,
                   color: Colors.grey[600],
                 ),
                 const SizedBox(width: 4),
@@ -1442,7 +1596,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                   child: Text(
                     item.location,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 10,
                       color: Colors.grey[600],
                     ),
                   ),
@@ -1454,15 +1608,18 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
               children: [
                 Icon(
                   Icons.calendar_today,
-                  size: 14,
+                  size: 12,
                   color: Colors.grey[600],
                 ),
                 const SizedBox(width: 4),
-                Text(
-                  '${item.time.year}-${item.time.month.toString().padLeft(2, '0')}-${item.time.day.toString().padLeft(2, '0')}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
+                Flexible(
+                  child: Text(
+                    '${item.time.year}-${item.time.month.toString().padLeft(2, '0')}-${item.time.day.toString().padLeft(2, '0')}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey[600],
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -1472,17 +1629,20 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
               children: [
                 Icon(
                   Icons.access_time,
-                  size: 14,
+                  size: 12,
                   color: Colors.grey[600],
                 ),
                 const SizedBox(width: 4),
-                Text(
-                  item.route?.planOut != null
-                      ? '${timeStr} - ${item.route!.planOut!.hour.toString().padLeft(2, '0')}:${item.route!.planOut!.minute.toString().padLeft(2, '0')}'
-                      : timeStr,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
+                Flexible(
+                  child: Text(
+                    item.route?.planOut != null
+                        ? '${timeStr} - ${item.route!.planOut!.hour.toString().padLeft(2, '0')}:${item.route!.planOut!.minute.toString().padLeft(2, '0')}'
+                        : timeStr,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey[600],
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -1497,7 +1657,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                 children: [
                   Icon(
                     Icons.check_circle,
-                    size: 14,
+                    size: 12,
                     color: Colors.green[600],
                   ),
                   const SizedBox(width: 4),
@@ -1505,7 +1665,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                     child: Text(
                       _formatActualTime(item.route),
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 10,
                         color: Colors.green[700],
                         fontWeight: FontWeight.w500,
                       ),
@@ -1710,7 +1870,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                   Text(
                     item.title,
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 14,
                       fontWeight: FontWeight.bold,
                       color: item.isActive ? Colors.teal[900] : Colors.black87,
                     ),
@@ -1728,7 +1888,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                       child: Text(
                         item.job.jobNo,
                         style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 9,
                           color: Colors.blue[700],
                           fontWeight: FontWeight.w500,
                         ),
@@ -1741,7 +1901,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                     children: [
                       Icon(
                         Icons.location_on,
-                        size: 14,
+                        size: 12,
                         color: Colors.grey[600],
                       ),
                       const SizedBox(width: 4),
@@ -1749,7 +1909,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                         child: Text(
                           item.location,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 10,
                             color: Colors.grey[600],
                           ),
                         ),
@@ -1762,15 +1922,18 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                     children: [
                       Icon(
                         Icons.calendar_today,
-                        size: 14,
+                        size: 12,
                         color: Colors.grey[600],
                       ),
                       const SizedBox(width: 4),
-                      Text(
-                        '${item.time.year}-${item.time.month.toString().padLeft(2, '0')}-${item.time.day.toString().padLeft(2, '0')}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
+                      Flexible(
+                        child: Text(
+                          '${item.time.year}-${item.time.month.toString().padLeft(2, '0')}-${item.time.day.toString().padLeft(2, '0')}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[600],
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -1781,19 +1944,22 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                     children: [
                       Icon(
                         Icons.access_time,
-                        size: 14,
+                        size: 12,
                         color: Colors.grey[600],
                       ),
                       const SizedBox(width: 4),
-                      Text(
-                        item.isJob && item.job.planOut != null
-                            ? '${timeStr} - ${item.job.planOut!.hour.toString().padLeft(2, '0')}:${item.job.planOut!.minute.toString().padLeft(2, '0')}'
-                            : item.route?.planOut != null
-                                ? '${timeStr} - ${item.route!.planOut!.hour.toString().padLeft(2, '0')}:${item.route!.planOut!.minute.toString().padLeft(2, '0')}'
-                                : timeStr,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
+                      Flexible(
+                        child: Text(
+                          item.isJob && item.job.planOut != null
+                              ? '${timeStr} - ${item.job.planOut!.hour.toString().padLeft(2, '0')}:${item.job.planOut!.minute.toString().padLeft(2, '0')}'
+                              : item.route?.planOut != null
+                                  ? '${timeStr} - ${item.route!.planOut!.hour.toString().padLeft(2, '0')}:${item.route!.planOut!.minute.toString().padLeft(2, '0')}'
+                                  : timeStr,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[600],
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -1808,7 +1974,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                       children: [
                         Icon(
                           Icons.check_circle,
-                          size: 14,
+                          size: 12,
                           color: Colors.green[600],
                         ),
                         const SizedBox(width: 4),
@@ -1816,7 +1982,7 @@ class _JobOrderScreenState extends State<JobOrderScreen> {
                           child: Text(
                             _formatActualTime(item.route),
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 10,
                               color: Colors.green[700],
                               fontWeight: FontWeight.w500,
                             ),
@@ -1977,7 +2143,10 @@ class _StickyHeaderDelegate extends SliverPersistentHeaderDelegate {
   @override
   Widget build(
       BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return child;
+    return SizedBox(
+      height: maxHeight,
+      child: child,
+    );
   }
 
   @override

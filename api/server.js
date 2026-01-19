@@ -57,11 +57,15 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+// Bind to 0.0.0.0 to accept connections from all network interfaces
+// This allows Physical Devices on the same network to connect
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth endpoint: http://localhost:${PORT}/api/auth/login`);
+  console.log(`🌐 Network access: http://<your-ip-address>:${PORT}`);
+  console.log(`📱 For Physical Device: Make sure your device is on the same network`);
 });
 
 module.exports = app;

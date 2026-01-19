@@ -1,6 +1,8 @@
 class JobOrder {
   final int jobId;
   final String jobNo;
+  final String? bookingNo;
+  final String? referenceNo;
   final String truckNo;
   final String route;
   final DateTime? planIn;
@@ -14,6 +16,8 @@ class JobOrder {
   JobOrder({
     required this.jobId,
     required this.jobNo,
+    this.bookingNo,
+    this.referenceNo,
     required this.truckNo,
     required this.route,
     this.planIn,
@@ -29,6 +33,8 @@ class JobOrder {
     return JobOrder(
       jobId: json['job_id'] as int,
       jobNo: json['job_no'] as String? ?? '',
+      bookingNo: json['booking_no'] as String?,
+      referenceNo: json['reference_no'] as String?,
       truckNo: json['truck_no'] as String? ?? 'ไม่ระบุ',
       route: json['route'] as String? ?? 'ไม่ระบุ',
       planIn: json['plan_in'] != null

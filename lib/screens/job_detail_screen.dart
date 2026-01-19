@@ -64,6 +64,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
               onRefresh: _refreshJobData,
               child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
+        physics: const ClampingScrollPhysics(),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -128,6 +129,22 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                       _job.route,
                       Icons.route,
                     ),
+                    if (_job.bookingNo != null && _job.bookingNo!.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _buildDetailRow(
+                        'Booking No',
+                        _job.bookingNo!,
+                        Icons.book,
+                      ),
+                    ],
+                    if (_job.referenceNo != null && _job.referenceNo!.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _buildDetailRow(
+                        'Reference No',
+                        _job.referenceNo!,
+                        Icons.receipt,
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     if (_job.stampDate != null)
                       _buildDetailRow(

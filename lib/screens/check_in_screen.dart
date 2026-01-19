@@ -217,6 +217,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
           width: double.maxFinite,
           child: ListView.builder(
             shrinkWrap: true,
+            physics: const ClampingScrollPhysics(),
             itemCount: validYards.length,
             itemBuilder: (context, index) {
               final yard = validYards[index];
@@ -776,7 +777,7 @@ class _CheckInScreenState extends State<CheckInScreen> {
                         child: Card(
                           elevation: 4,
                           child: Padding(
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.all(12),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
@@ -787,60 +788,62 @@ class _CheckInScreenState extends State<CheckInScreen> {
                                     const Text(
                                       'สถานที่บริษัท',
                                       style: TextStyle(
-                                        fontSize: 18,
+                                        fontSize: 16,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     const Icon(
                                       Icons.arrow_drop_down,
                                       color: Colors.grey,
+                                      size: 20,
                                     ),
                                   ],
                                 ),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: 10),
                               if (_selectedYard != null) ...[
                                 // แสดงชื่อ (ใช้ title แทน name)
                                 Text(
                                   'ชื่อ: ${_selectedYard!.title ?? _selectedYard!.name}',
                                   style: const TextStyle(
-                                    fontSize: 16,
+                                    fontSize: 14,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 6),
                                 // แสดง address
                                 if (_selectedYard!.address != null && _selectedYard!.address!.isNotEmpty)
                                   Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.only(bottom: 6),
                                     child: Text(
                                       'ที่อยู่: ${_selectedYard!.address}',
-                                      style: const TextStyle(fontSize: 14),
+                                      style: const TextStyle(fontSize: 12),
                                     ),
                                   ),
                                 // แสดงระยะทางและสถานะ
                                 if (_currentPosition != null && _distance != null) ...[
-                                  const SizedBox(height: 8),
-                                  const Divider(),
-                                  const SizedBox(height: 8),
+                                  const SizedBox(height: 6),
+                                  const Divider(height: 1),
+                                  const SizedBox(height: 6),
                                   Text(
                                     'ระยะทาง: ${_distance!.toStringAsFixed(2)} เมตร',
                                     style: const TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 14,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: 3),
                                   Row(
                                     children: [
                                       Icon(
                                         _isWithinRadius ? Icons.check_circle : Icons.warning,
                                         color: _isWithinRadius ? Colors.green : Colors.orange,
-                                        size: 20,
+                                        size: 16,
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
                                         _isWithinRadius ? 'อยู่ในรัศมี' : 'อยู่นอกรัศมี',
                                         style: TextStyle(
+                                          fontSize: 12,
                                           color: _isWithinRadius ? Colors.green : Colors.orange,
                                           fontWeight: FontWeight.bold,
                                         ),

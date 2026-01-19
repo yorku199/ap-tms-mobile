@@ -143,14 +143,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          final authProvider = Provider.of<AuthProvider>(context, listen: false);
-          await authProvider.fetchCurrentUser();
-        },
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
+      body: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header Section
@@ -343,7 +338,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
         ),
-      ),
     );
   }
 
@@ -374,17 +368,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ],
         ),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisAlignment: MainAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: iconColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
@@ -392,34 +387,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: Icon(
                     icon,
                     color: iconColor,
-                    size: 24,
+                    size: 18,
                   ),
                 ),
                 Icon(
                   Icons.chevron_right,
                   color: Colors.grey[400],
-                  size: 20,
+                  size: 16,
                 ),
               ],
             ),
+            const SizedBox(height: 6),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   subtitle,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 10,
                     color: Colors.grey[600],
                   ),
                   maxLines: 1,

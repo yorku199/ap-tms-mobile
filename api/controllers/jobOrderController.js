@@ -199,6 +199,8 @@ const getJobOrders = async (req, res) => {
       queryString = `SELECT DISTINCT
         jm.job_id,
         jm.job_no,
+        jm.booking_no,
+        jm.reference_no,
         jm.status,
         jm.job_status,
         jm.status_receive,
@@ -234,6 +236,8 @@ const getJobOrders = async (req, res) => {
       queryString = `SELECT DISTINCT
         jm.job_id,
         jm.job_no,
+        jm.booking_no,
+        jm.reference_no,
         jm.status,
         jm.job_status,
         jm.status_receive,
@@ -481,6 +485,8 @@ const getJobOrders = async (req, res) => {
         return {
           job_id: job.job_id,
           job_no: job.job_no,
+          booking_no: job.booking_no || null,
+          reference_no: job.reference_no || null,
           truck_no: job.truck_tractor_no || job.truck_trailer_no || 'ไม่ระบุ',
           route: routeText,
           plan_in: planIn,
